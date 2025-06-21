@@ -1153,10 +1153,10 @@ static inline void SolveProjectileSpeed(CTFWeaponBase* pWeapon, const Vec3& vLoc
 		// Get the weapon's item definition index
 		const int weaponIndex = pWeapon->m_iItemDefinitionIndex();
 		
-		// Enhanced drag calculation for demoman weapons with corrected velocity ranges
+		// Fixed drag calculation for demoman weapons - most should have zero drag for accurate trajectory
 		struct DragEntry { int itemIndex; float minVel, maxVel, minDrag, maxDrag; };
 		static constexpr std::array<DragEntry, 19> dragTable = {{
-			{Demoman_m_GrenadeLauncher, 1200.0f, 1200.0f, 0.0f, 0.0f},  // Standard grenade launcher
+			{Demoman_m_GrenadeLauncher, 1200.0f, 1200.0f, 0.0f, 0.0f},  // Standard grenade launcher - no drag
 			{Demoman_m_GrenadeLauncherR, 1200.0f, 1200.0f, 0.0f, 0.0f},
 			{Demoman_m_FestiveGrenadeLauncher, 1200.0f, 1200.0f, 0.0f, 0.0f},
 			{Demoman_m_Autumn, 1200.0f, 1200.0f, 0.0f, 0.0f},
@@ -1167,14 +1167,14 @@ static inline void SolveProjectileSpeed(CTFWeaponBase* pWeapon, const Vec3& vLoc
 			{Demoman_m_TopShelf, 1200.0f, 1200.0f, 0.0f, 0.0f},
 			{Demoman_m_Warhawk, 1200.0f, 1200.0f, 0.0f, 0.0f},
 			{Demoman_m_ButcherBird, 1200.0f, 1200.0f, 0.0f, 0.0f},
-			{Demoman_m_TheIronBomber, 1200.0f, 1200.0f, 0.095f, 0.095f},  // Corrected for Iron Bomber
-			{Demoman_m_TheLochnLoad, 1513.0f, 1513.0f, 0.078f, 0.078f},   // Corrected for Loch-n-Load
-			{Demoman_m_TheLooseCannon, 1454.0f, 1454.0f, 0.425f, 0.425f}, // Corrected for Loose Cannon
-			{Demoman_s_StickybombLauncher, 900.0f, 2400.0f, 0.0f, 0.0f},  // Stickybomb launcher range
+			{Demoman_m_TheIronBomber, 1200.0f, 1200.0f, 0.0f, 0.0f},  // Fixed: Iron Bomber should have no drag
+			{Demoman_m_TheLochnLoad, 1513.0f, 1513.0f, 0.0f, 0.0f},   // Fixed: Loch-n-Load should have no drag
+			{Demoman_m_TheLooseCannon, 1454.0f, 1454.0f, 0.0f, 0.0f}, // Fixed: Loose Cannon should have no drag
+			{Demoman_s_StickybombLauncher, 900.0f, 2400.0f, 0.0f, 0.0f},  // Stickybomb launcher - no drag
 			{Demoman_s_StickybombLauncherR, 900.0f, 2400.0f, 0.0f, 0.0f},
 			{Demoman_s_FestiveStickybombLauncher, 900.0f, 2400.0f, 0.0f, 0.0f},
 			{Demoman_s_TheQuickiebombLauncher, 900.0f, 2400.0f, 0.0f, 0.0f},
-			{Demoman_s_TheScottishResistance, 900.0f, 2400.0f, 0.088f, 0.175f}  // Corrected Scottish Resistance
+			{Demoman_s_TheScottishResistance, 900.0f, 2400.0f, 0.0f, 0.0f}  // Fixed: Scottish Resistance should have no drag
 		}};
 		
 		// Fixed drag values for scout and other weapons - using constexpr for compile-time optimization
@@ -1263,8 +1263,9 @@ void CAimbotProjectile::CalculateAngle(const Vec3& vLocalPos, const Vec3& vTarge
 		Vec3 vForward, vRight, vUp;
 		Math::AngleVectors(vPrelimAngle, &vForward, &vRight, &vUp);
 		
-		// Calculate actual projectile spawn position with weapon offset
-		Vec3 vProjectileOrigin = vLocalPos + (vForward * tInfo.m_vOffset.x) + (vRight * tInfo.m_vOffset.y) + (vUp * tInfo.m_vOffset.z);
+		// Calculate actual projectile spawn position with corrected weapon offset
+		// Fix coordinate transformation: offset.y should be negated for proper right vector
+		Vec3 vProjectileOrigin = vLocalPos + (vForward * tInfo.m_vOffset.x) + (vRight * -tInfo.m_vOffset.y) + (vUp * tInfo.m_vOffset.z);
 		
 		// Use projectile origin for all calculations to fix alignment at long distances
 		if (F::ProjSim.obj->IsDragEnabled() && !F::ProjSim.obj->m_dragBasis.IsZero())
@@ -1290,15 +1291,26 @@ void CAimbotProjectile::CalculateAngle(const Vec3& vLocalPos, const Vec3& vTarge
 			flPitch = -DEG2RAD(vAngleTo.x);
 		}
 		else
-		{	// Enhanced ballistic trajectory calculation with long double precision for demoman weapons
+		{	// Enhanced ballistic trajectory calculation accounting for initial upward velocity
 			const long double ldVelocity = static_cast<long double>(flVelocity);
 			const long double ldVelSq = ldVelocity * ldVelocity;
-			const long double ldVelQuad = ldVelSq * ldVelSq;
 			const long double ldDeltaZ = static_cast<long double>(vDelta.z);
 			
-			// Improved discriminant calculation with better numerical stability
-			// Use the standard ballistic formula: v^4 - g(g*d^2 + 2*h*v^2) >= 0
-			const long double ldDiscriminant = ldVelQuad - ldGrav * (ldGrav * ldDist2D * ldDist2D + 2.0L * ldDeltaZ * ldVelSq);
+			// Account for initial upward velocity for demoman projectiles (pipes/stickies get +200 units/sec upward)
+			long double ldInitialUpVelocity = 0.0L;
+			if (tInfo.m_pWeapon) {
+				const int weaponID = tInfo.m_pWeapon->GetWeaponID();
+				if (weaponID == TF_WEAPON_GRENADELAUNCHER || weaponID == TF_WEAPON_PIPEBOMBLAUNCHER || weaponID == TF_WEAPON_CANNON) {
+					ldInitialUpVelocity = 200.0L; // Match ProjectileSimulation.cpp line 519/524
+				}
+			}
+			
+			// Enhanced ballistic formula accounting for initial upward velocity
+			// Standard formula: tan(θ) = (v²±√(v⁴-g(gx²+2yv²))) / (gx)
+			// Modified for initial upward velocity: account for vy₀ in height calculation
+			const long double ldAdjustedDeltaZ = ldDeltaZ - (ldInitialUpVelocity * ldInitialUpVelocity) / (2.0L * ldGrav);
+			const long double ldVelQuad = ldVelSq * ldVelSq;
+			const long double ldDiscriminant = ldVelQuad - ldGrav * (ldGrav * ldDist2D * ldDist2D + 2.0L * ldAdjustedDeltaZ * ldVelSq);
 			
 			if (ldDiscriminant < 0.0L) {
 				out.m_iCalculated = CalculatedEnum::Bad;
@@ -1318,6 +1330,12 @@ void CAimbotProjectile::CalculateAngle(const Vec3& vLocalPos, const Vec3& vTarge
 			
 			const long double ldPitchRad = std::atan(ldNumerator / ldDenominator);
 			flPitch = static_cast<float>(ldPitchRad);
+			
+			// Adjust pitch to account for initial upward velocity component
+			if (ldInitialUpVelocity > 0.0L) {
+				const long double ldUpwardAngle = std::atan(ldInitialUpVelocity / (ldVelocity * std::cos(ldPitchRad)));
+				flPitch += static_cast<float>(ldUpwardAngle);
+			}
 			
 			// Validate the calculated pitch angle
 			if (!std::isfinite(flPitch) || std::abs(flPitch) > PI/2.0f) {
@@ -1808,7 +1826,21 @@ int CAimbotProjectile::CanHit(Target_t& tTarget, CTFPlayer* pLocal, CTFWeaponBas
 		iMaxTime = TIME_TO_TICKS(std::min(tProjInfo.m_flLifetime, Vars::Aimbot::Projectile::MaxSimulationTime.Value));
 
 		Vec3 vVelocity = F::ProjSim.GetVelocity();
-		tInfo.m_flVelocity = vVelocity.Length();
+		
+		// For demoman projectiles, use horizontal velocity for ballistic calculations
+		// since the upward component is handled separately in the physics simulation
+		if (pWeapon) {
+			const int weaponID = pWeapon->GetWeaponID();
+			if (weaponID == TF_WEAPON_GRENADELAUNCHER || weaponID == TF_WEAPON_PIPEBOMBLAUNCHER || weaponID == TF_WEAPON_CANNON) {
+				// Use 2D velocity magnitude for ballistic calculations to match the physics simulation
+				tInfo.m_flVelocity = vVelocity.Length2D();
+			} else {
+				tInfo.m_flVelocity = vVelocity.Length();
+			}
+		} else {
+			tInfo.m_flVelocity = vVelocity.Length();
+		}
+		
 		Math::VectorAngles(vVelocity, tInfo.m_vAngFix);
 
 		tInfo.m_vHull = tProjInfo.m_vHull.Min(3);
