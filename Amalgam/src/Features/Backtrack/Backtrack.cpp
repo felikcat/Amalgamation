@@ -115,7 +115,7 @@ void CBacktrack::UpdateDatagram()
 
 bool CBacktrack::GetRecords(CBaseEntity* pEntity, std::vector<TickRecord*>& vReturn)
 {
-	if (!m_mRecords.contains(pEntity))
+	if (m_mRecords.find(pEntity) == m_mRecords.end())
 		return false;
 
 	auto& vRecords = m_mRecords[pEntity];
@@ -224,14 +224,33 @@ void CBacktrack::MakeRecords()
 			const Vec3 vDelta = tCurRecord.m_vBreak - pLastRecord->m_vBreak;
 			
 			static auto sv_lagcompensation_teleport_dist = U::ConVars.FindVar("sv_lagcompensation_teleport_dist");
-			const float flDist = powf(sv_lagcompensation_teleport_dist->GetFloat(), 2.f);
+			float flDist = powf(sv_lagcompensation_teleport_dist->GetFloat(), 2.f);
+			
+			// Increase tolerance for Heavy class due to slower movement patterns
+			if (pPlayer->m_iClass() == TF_CLASS_HEAVY)
+				flDist *= 1.5f; // 50% more tolerance for Heavy teleport detection
+			
 			if (vDelta.Length2DSqr() > flDist)
 			{
 				bLagComp = true;
 				if (!H::Entities.GetLagCompensation(pPlayer->entindex()))
 				{
-					vRecords.resize(1);
-					vRecords.front().m_flSimTime = std::numeric_limits<float>::max(); // hack
+					// For Heavy class, use gradual invalidation instead of immediate clear
+					if (pPlayer->m_iClass() == TF_CLASS_HEAVY)
+					{
+						// Gradually reduce confidence in records instead of immediate invalidation
+						float flInvalidationFactor = std::min(vDelta.Length2D() / sv_lagcompensation_teleport_dist->GetFloat(), 2.0f);
+						for (auto& tRecord : vRecords)
+						{
+							// Mark as invalid but don't immediately clear
+							tRecord.m_bInvalid = true;
+						}
+					}
+					else
+					{
+						vRecords.resize(1);
+						vRecords.front().m_flSimTime = std::numeric_limits<float>::max(); // hack
+					}
 				}
 				std::for_each(vRecords.begin(), vRecords.end(), [](auto& tRecord) { tRecord.m_bInvalid = true; });
 			}
@@ -418,8 +437,20 @@ void CBacktrack::Draw(CTFPlayer* pLocal)
 	}
 
 	if (flFake || Vars::Backtrack::Interp.Value)
-		H::Draw.StringOutlined(fFont, x, y, Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, align, std::format("Ping {:.0f} (+ {:.0f}) ms", flLatency, flFake).c_str());
+	{
+		char szBuffer[64];
+		sprintf_s(szBuffer, "Ping %.0f (+ %.0f) ms", flLatency, flFake);
+		H::Draw.StringOutlined(fFont, x, y, Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, align, szBuffer);
+	}
 	else
-		H::Draw.StringOutlined(fFont, x, y, Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, align, std::format("Ping {:.0f} ms", flLatency).c_str());
-	H::Draw.StringOutlined(fFont, x, y += nTall, Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, align, std::format("Scoreboard {} ms", iLatencyScoreboard).c_str());
+	{
+		char szBuffer[64];
+		sprintf_s(szBuffer, "Ping %.0f ms", flLatency);
+		H::Draw.StringOutlined(fFont, x, y, Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, align, szBuffer);
+	}
+	{
+		char szBuffer[64];
+		sprintf_s(szBuffer, "Scoreboard %d ms", iLatencyScoreboard);
+		H::Draw.StringOutlined(fFont, x, y += nTall, Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, align, szBuffer);
+	}
 }

@@ -240,6 +240,21 @@ bool CMovementSimulation::Initialize(CBaseEntity* pEntity, PlayerStorage& tStora
 			pPlayer->m_bInDuckJump() = false;
 		}
 
+		// Heavy-specific movement prediction with momentum consideration
+		if (pPlayer->m_iClass() == TF_CLASS_HEAVY && !pPlayer->m_vecVelocity().IsZero())
+		{
+			float flMomentum = pPlayer->m_vecVelocity().Length2D() / SDK::MaxSpeed(pPlayer);
+			if (flMomentum < 0.1f) // Very slow movement
+			{
+				// Smooth out velocity changes for Heavy to prevent jitter
+				if (auto pAvgVel = H::Entities.GetAvgVelocity(pPlayer->entindex()))
+				{
+					Vec3 vSmoothedVel = pPlayer->m_vecVelocity() * 0.7f + *pAvgVel * 0.3f;
+					pPlayer->m_vecVelocity() = vSmoothedVel;
+				}
+			}
+		}
+
 		if (pPlayer != H::Entities.GetLocal())
 		{
 			pPlayer->m_vecBaseVelocity() = Vec3(); // residual basevelocity causes issues
@@ -299,7 +314,9 @@ bool CMovementSimulation::Initialize(CBaseEntity* pEntity, PlayerStorage& tStora
 
 		if (flCurrentChance < Vars::Aimbot::Projectile::HitChance.Value / 100)
 		{
-			SDK::Output("MovementSimulation", std::format("Hitchance ({}% < {}%)", flCurrentChance * 100, Vars::Aimbot::Projectile::HitChance.Value).c_str(), { 80, 200, 120 }, Vars::Debug::Logging.Value);
+			char szBuffer[128];
+			sprintf_s(szBuffer, "Hitchance (%.1f%% < %d%%)", flCurrentChance * 100, Vars::Aimbot::Projectile::HitChance.Value);
+			SDK::Output("MovementSimulation", szBuffer, { 80, 200, 120 }, Vars::Debug::Logging.Value);
 
 			tStorage.m_bFailed = true;
 			return false;
@@ -499,7 +516,9 @@ void CMovementSimulation::GetAverageYaw(PlayerStorage& tStorage, int iSamples)
 
 		float flYaw = 0.f;
 		bool bResult = GetYawDifference(tRecord1, tRecord2, !iTicks, &flYaw, flStraightFuzzyValue, iMaxChanges, iMaxChangeTime, flMaxSpeed);
-		SDK::Output("GetYawDifference", std::format("{} ({}): {}, {}", i, iTicks, flYaw, bResult).c_str(), { 50, 127, 75 }, Vars::Debug::Logging.Value);
+		char szBuffer[128];
+		sprintf_s(szBuffer, "%zu (%d): %.3f, %s", i, iTicks, flYaw, bResult ? "true" : "false");
+		SDK::Output("GetYawDifference", szBuffer, { 50, 127, 75 }, Vars::Debug::Logging.Value);
 		if (!bResult)
 			break;
 
@@ -543,7 +562,9 @@ void CMovementSimulation::GetAverageYaw(PlayerStorage& tStorage, int iSamples)
 		return;
 
 	tStorage.m_flAverageYaw = flAverageYaw;
-	SDK::Output("MovementSimulation", std::format("flAverageYaw calculated to {} from {} ({}) {}", flAverageYaw, iTicks, iMinimum, pPlayer->entindex() == I::EngineClient->GetLocalPlayer() ? "(local)" : "").c_str(), { 100, 255, 150 }, Vars::Debug::Logging.Value);
+	char szBuffer[128];
+	sprintf_s(szBuffer, "flAverageYaw calculated to %.3f from %d (%d) %s", flAverageYaw, iTicks, iMinimum, pPlayer->entindex() == I::EngineClient->GetLocalPlayer() ? "(local)" : "");
+	SDK::Output("MovementSimulation", szBuffer, { 100, 255, 150 }, Vars::Debug::Logging.Value);
 }
 
 bool CMovementSimulation::StrafePrediction(PlayerStorage& tStorage, int iSamples)

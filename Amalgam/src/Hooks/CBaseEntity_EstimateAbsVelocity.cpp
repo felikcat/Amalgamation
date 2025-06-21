@@ -27,7 +27,20 @@ MAKE_HOOK(CBaseEntity_EstimateAbsVelocity, S::CBaseEntity_EstimateAbsVelocity(),
 			{
 				bool bMinwalk;
 				if (F::Resolver.GetAngles(pPlayer, nullptr, nullptr, &bMinwalk) && bMinwalk)
-					vel = { 1, 1 };
+				{
+					// Use historical velocity data instead of artificial values
+					if (auto pAvgVel = H::Entities.GetAvgVelocity(pPlayer->entindex()))
+					{
+						vel.x = pAvgVel->x;
+						vel.y = pAvgVel->y;
+						// Keep original Z for ground players
+					}
+					else
+					{
+						// Fallback to minimal artificial velocity only if no historical data
+						vel = { 1, 1 };
+					}
+				}
 			}
 		}
 	}

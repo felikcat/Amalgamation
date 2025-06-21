@@ -76,7 +76,7 @@ MAKE_HOOK(CBaseEntity_SetAbsVelocity, S::CBaseEntity_SetAbsVelocity(), void,
 		return CALL_ORIGINAL(rcx, vecAbsVelocity);
 
 	auto& tOldRecord = pRecords->front();
-	auto tNewRecord = VelFixRecord(pPlayer->m_vecOrigin() + Vec3(0, 0, pPlayer->GetSize().z), pPlayer->m_flSimulationTime());
+	auto tNewRecord = VelFixRecord{ pPlayer->m_vecOrigin() + Vec3(0, 0, pPlayer->GetSize().z), pPlayer->m_flSimulationTime() };
 
 	int iDeltaTicks = TIME_TO_TICKS(tNewRecord.m_flSimulationTime - tOldRecord.m_flSimulationTime);
 	float flDeltaTime = TICKS_TO_TIME(iDeltaTicks);
@@ -85,6 +85,11 @@ MAKE_HOOK(CBaseEntity_SetAbsVelocity, S::CBaseEntity_SetAbsVelocity(), void,
 
 	static auto sv_lagcompensation_teleport_dist = U::ConVars.FindVar("sv_lagcompensation_teleport_dist");
 	float flDist = powf(sv_lagcompensation_teleport_dist->GetFloat(), 2.f) * iDeltaTicks;
+	
+	// Increase tolerance for Heavy class due to slower movement patterns
+	if (pPlayer->m_iClass() == TF_CLASS_HEAVY)
+		flDist *= 1.5f; // 50% more tolerance for Heavy teleport detection
+	
 	if ((tNewRecord.m_vecOrigin - tOldRecord.m_vecOrigin).Length2DSqr() >= flDist)
 		return pRecords->clear();
 

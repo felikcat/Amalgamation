@@ -1,0 +1,36 @@
+:experimental:
+ifdef::env-github[]
+:icons:
+:tip-caption: :bulb:
+:note-caption: :information_source:
+:important-caption: :heavy_exclamation_mark:
+:caution-caption: :fire:
+:warning-caption: :warning:
+endif::[]
+
+= Amalgam(ation)
+
+[.text-center]
+--
+link:https://nightly.link/felikcat/Amalgam/workflows/msbuild/master/Amalgamx64Release.zip[image:.github/assets/download.png[Download,width=auto,height=auto]]
+link:https://nightly.link/felikcat/Amalgam/workflows/msbuild/master/Amalgamx64ReleasePDB.zip[image:.github/assets/pdb2.png[PDB,width=auto,height=auto]]
+link:https://nightly.link/felikcat/Amalgam/workflows/msbuild/master/Amalgamx64ReleaseAVX2.zip[image:.github/assets/download_avx2.png[Download AVX2,width=auto,height=auto]]
+link:https://nightly.link/felikcat/Amalgam/workflows/msbuild/master/Amalgamx64ReleaseAVX2PDB.zip[image:.github/assets/pdb2.png[PDB AVX2,width=auto,height=auto]]
+
+link:https://nightly.link/felikcat/Amalgam/workflows/msbuild/master/Amalgamx64ReleaseFreetype.zip[image:.github/assets/freetype.png[Download Freetype,width=auto,height=auto]]
+link:https://nightly.link/felikcat/Amalgam/workflows/msbuild/master/Amalgamx64ReleaseFreetypePDB.zip[image:.github/assets/pdb2.png[PDB Freetype,width=auto,height=auto]]
+link:https://nightly.link/felikcat/Amalgam/workflows/msbuild/master/Amalgamx64ReleaseFreetypeAVX2.zip[image:.github/assets/freetype_avx2.png[Download Freetype AVX2,width=auto,height=auto]]
+link:https://nightly.link/felikcat/Amalgam/workflows/msbuild/master/Amalgamx64ReleaseFreetypeAVX2PDB.zip[image:.github/assets/pdb2.png[PDB Freetype AVX2,width=auto,height=auto]]
+--
+
+[NOTE]
+====
+AVX2 may be faster than SSE2 though not all CPUs support it (`Steam > Help > System Information > Processor Information > AVX2`). Freetype uses freetype as the text rasterizer and includes some custom fonts, which results in better looking text but larger DLL sizes. PDBs are for developer use.
+
+If nightly.link is down, you can still download through link:https://github.com/felikcat/Amalgam/actions[GitHub] with an account.
+====
+
+image:https://img.shields.io/github/actions/workflow/status/felikcat/Amalgam/msbuild.yml?branch=master[GitHub Workflow Status,link=/../../actions]
+image:https://img.shields.io/github/commit-activity/m/felikcat/Amalgam[GitHub commit activity,link=/../../commits/]
+
+Only link:https://github.com/DarthTon/Xenos/releases[Xenos] and "protecting" both Xenos and Amalgamation with Themida is recommended, don't use a VAC bypass as you'll get banned after too many reports.

@@ -107,7 +107,30 @@ bool CProjectileSimulation::GetInfoMain(CTFPlayer* pPlayer, CTFWeaponBase* pWeap
 		float flMortar = bCannon ? SDK::AttribHookValue(0.f, "grenade_launcher_mortar_mode", pWeapon) : 0.f;
 
 		SDK::GetProjectileFireSetup(pPlayer, vAngles, { 16.f, 8.f, -6.f }, vPos, vAngle, true, bQuick);
-		float flSpeed = pPlayer->InCond(TF_COND_RUNE_PRECISION) ? 3000.f : SDK::AttribHookValue(1200.f, "mult_projectile_speed", pWeapon);
+		
+		// Enhanced speed calculation for demoman grenade launchers with weapon-specific values
+		float flSpeed = 1200.f; // Base speed for standard grenade launcher
+		if (pPlayer->InCond(TF_COND_RUNE_PRECISION)) {
+			flSpeed = 3000.f;
+		} else {
+			// Apply weapon-specific speed modifiers for different grenade launchers
+			const int weaponIndex = pWeapon->m_iItemDefinitionIndex();
+			switch (weaponIndex) {
+				case Demoman_m_TheLochnLoad:
+					flSpeed = 1513.f; // Loch-n-Load has 25% faster projectile speed
+					break;
+				case Demoman_m_TheLooseCannon:
+					flSpeed = 1454.f; // Loose Cannon has 21% faster projectile speed
+					break;
+				case Demoman_m_TheIronBomber:
+					flSpeed = 1200.f; // Iron Bomber uses standard speed
+					break;
+				default:
+					flSpeed = SDK::AttribHookValue(1200.f, "mult_projectile_speed", pWeapon);
+					break;
+			}
+		}
+		
 		float flLifetime = flMortar
 			? pWeapon->As<CTFGrenadeLauncher>()->m_flDetonateTime() > 0.f ? pWeapon->As<CTFGrenadeLauncher>()->m_flDetonateTime() - I::GlobalVars->curtime : flMortar
 			: SDK::AttribHookValue(2.2f, "fuse_mult", pWeapon);
@@ -118,10 +141,46 @@ bool CProjectileSimulation::GetInfoMain(CTFPlayer* pPlayer, CTFWeaponBase* pWeap
 	case TF_WEAPON_PIPEBOMBLAUNCHER:
 	{
 		SDK::GetProjectileFireSetup(pPlayer, vAngles, { 16.f, 8.f, -6.f }, vPos, vAngle, true, bQuick);
-		float flCharge = flAutoCharge > 0.f && SDK::AttribHookValue(1, "mult_dmg", pWeapon)
-			? SDK::AttribHookValue(4.f, "stickybomb_charge_rate", pWeapon) * flAutoCharge
-			: (pWeapon->As<CTFPipebombLauncher>()->m_flChargeBeginTime() > 0.f ? I::GlobalVars->curtime - pWeapon->As<CTFPipebombLauncher>()->m_flChargeBeginTime() : 0.f);
-		float flSpeed = bMaxSpeed ? 2400.f : Math::RemapVal(flCharge, 0.f, SDK::AttribHookValue(4.f, "stickybomb_charge_rate", pWeapon), 900.f, 2400.f);
+		
+		// Enhanced charge calculation for stickybomb launcher with improved precision
+		float flCharge = 0.f;
+		const float flChargeRate = SDK::AttribHookValue(4.f, "stickybomb_charge_rate", pWeapon);
+		
+		if (flAutoCharge > 0.f && SDK::AttribHookValue(1, "mult_dmg", pWeapon)) {
+			flCharge = flChargeRate * flAutoCharge;
+		} else if (pWeapon->As<CTFPipebombLauncher>()->m_flChargeBeginTime() > 0.f) {
+			flCharge = I::GlobalVars->curtime - pWeapon->As<CTFPipebombLauncher>()->m_flChargeBeginTime();
+		}
+		
+		// Clamp charge to valid range for consistent behavior
+		flCharge = std::clamp(flCharge, 0.f, flChargeRate);
+		
+		// Enhanced speed calculation with weapon-specific modifiers
+		float flMinSpeed = 900.f;
+		float flMaxSpeed = 2400.f;
+		
+		// Apply weapon-specific speed modifiers for different stickybomb launchers
+		const int weaponIndex = pWeapon->m_iItemDefinitionIndex();
+		switch (weaponIndex) {
+			case Demoman_s_TheQuickiebombLauncher:
+				// Quickiebomb Launcher has faster charge rate but same speed range
+				flMinSpeed = 900.f;
+				flMaxSpeed = 2400.f;
+				break;
+			case Demoman_s_TheScottishResistance:
+				// Scottish Resistance has same speed range but different charge mechanics
+				flMinSpeed = 900.f;
+				flMaxSpeed = 2400.f;
+				break;
+			default:
+				// Standard stickybomb launcher
+				flMinSpeed = 900.f;
+				flMaxSpeed = 2400.f;
+				break;
+		}
+		
+		float flSpeed = bMaxSpeed ? flMaxSpeed : Math::RemapVal(flCharge, 0.f, flChargeRate, flMinSpeed, flMaxSpeed);
+		
 		tProjInfo = { pWeapon, FNV1A::Hash32Const("models/weapons/w_models/w_stickybomb.mdl"), vPos, vAngle, { 6.f, 6.f, 6.f }, flSpeed, 1.f };
 		return true;
 	}
