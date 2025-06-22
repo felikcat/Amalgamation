@@ -25,3 +25,29 @@ Only link:https://github.com/DarthTon/Xenos/releases[Xenos] and "protecting" bot
 . Change to ReleaseFreetype if your CPU doesn't have AVX2: +
 `.\Build.ps1 -ProjectPath "Amalgam.sln" -Configuration "ReleaseFreetypeAVX2" -Platform "x64"`
 - Alternatively you can use Visual Studio 2022 to compile.
+
+== AI
+
+.Is it ready to improve pre-existing code yet?
+- No.
+
+.Specifications
+- AI model: Claude Sonnet 4 by Anthropic; used via API tokens on a tier 3 plan.
+- AI coding agent: Roo Code
+- Editor or IDE: Visual Studio Code. Visual Studio is used exclusively for PVS-Studio and adding or removing files.
+- Default prompt:
+----
+Use context7 mcp to lookup the following: /microsoftdocs/cpp-docs, /isocpp/cppcoreguidelines, and /valvesoftware/source-sdk-2013. The codebase language standard is C++23. Only add documentation if it helps in reading the code. Do not create new files. Apply the changes in small chunks at a time. Never insert [[unlikely]] and [[likely]] attributes into the code. Simplify the code as much as possible without removing its features, however do warn if you think any features are unnecessary or counter-productive. Do not override the old comments or documentation.
+----
+
+.Notes
+- The code is overcomplex if the AI is not told explicitly to keep it as simple as possible.
+- AI sometimes generates broken code and requires manual fixing if not told to keep to the original vision as closely as possible.
+- The AI tasks have to be applied in small chunks at a time.
+- AI can prototype if prompted correctly, but you have to manually fix its output.
+- Original comments / documentation are overwritten unless specified not to do so.
+- AI inserting `\[[unlikely]]` or `\[[likely]]` attributes into the code increases the chance of bugs, deny it from doing so.
+- Context7 MCP isn't as good as fine tuning using the RAG (Retrieve Augment Generate) technique, it may be worth pursuing training a local AI with this approach for the Source SDK 2013 source code.
+
+
+
