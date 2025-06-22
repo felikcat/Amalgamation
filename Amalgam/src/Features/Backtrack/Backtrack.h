@@ -84,7 +84,7 @@ public:
 	void Store();
 	void SendLerp();
 	void Draw(CTFPlayer* pLocal);
-	void Reset();
+	void Reset() noexcept;
 
 	// Record management
 	[[nodiscard]] bool GetRecords(CBaseEntity* pEntity, std::vector<TickRecord*>& vReturn);
@@ -94,11 +94,11 @@ public:
 	                                                       float flTimeMod = 0.0f);
 
 	// Latency and interpolation getters
-	[[nodiscard]] float GetLerp();
-	[[nodiscard]] float GetFake();
-	[[nodiscard]] float GetReal(int iFlow = MAX_FLOWS, bool bNoFake = true);
-	[[nodiscard]] float GetFakeInterp();
-	[[nodiscard]] int GetAnticipatedChoke(int iMethod = Vars::Aimbot::General::AimType.Value);
+	[[nodiscard]] constexpr float GetLerp() const noexcept;
+	[[nodiscard]] constexpr float GetFake() const noexcept;
+	[[nodiscard]] float GetReal(int iFlow = MAX_FLOWS, bool bNoFake = true) const noexcept;
+	[[nodiscard]] constexpr float GetFakeInterp() const noexcept;
+	[[nodiscard]] int GetAnticipatedChoke(int iMethod = Vars::Aimbot::General::AimType.Value) const noexcept;
 	
 	// Event handling
 	void SetLerp(IGameEvent* pEvent);
@@ -107,7 +107,7 @@ public:
 	
 	// Network manipulation
 	void AdjustPing(CNetChannel* netChannel);
-	void RestorePing(CNetChannel* netChannel);
+	void RestorePing(CNetChannel* netChannel) noexcept;
 
 	// Public state - kept for compatibility
 	int m_iTickCount{0};

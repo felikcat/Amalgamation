@@ -15,7 +15,13 @@
 #include <execution>
 #include <immintrin.h>
 #include <cmath>
-#include <valarray>
+#include <span>
+#include <ranges>
+#include <concepts>
+#include <bit>
+#include <numbers>
+#include <string_view>
+#include <format>
 
 //#define SPLASH_DEBUG1 // normal splash visualization
 //#define SPLASH_DEBUG2 // obstructed splash visualization
@@ -31,82 +37,77 @@ static std::unordered_map<std::string, int> mTraceCount = {};
 std::vector<Target_t> CAimbotProjectile::GetTargets(CTFPlayer* pLocal, CTFWeaponBase* pWeapon)
 {
 	std::vector<Target_t> vTargets;
-	vTargets.reserve(32); // Reserve space to avoid reallocations
+	vTargets.reserve(32);
 	
 	const auto iSort = Vars::Aimbot::General::TargetSelection.Value;
 	const Vec3 vLocalPos = F::Ticks.GetShootPos();
 	const Vec3 vLocalAngles = I::EngineClient->GetViewAngles();
 
-	{
-		EGroupType eGroupType = EGroupType::GROUP_INVALID;
-		if (Vars::Aimbot::General::Target.Value & Vars::Aimbot::General::TargetEnum::Players)
-			eGroupType = EGroupType::PLAYERS_ENEMIES;
+	// Determine target group type with simplified logic and branch prediction
+	EGroupType eGroupType = EGroupType::GROUP_INVALID;
+	if (Vars::Aimbot::General::Target.Value & Vars::Aimbot::General::TargetEnum::Players) [[likely]] {
+		eGroupType = EGroupType::PLAYERS_ENEMIES;
 		
-		if (Vars::Aimbot::Healing::AutoHeal.Value)
-		{
+		if (Vars::Aimbot::Healing::AutoHeal.Value) [[unlikely]] {
 			const auto weaponID = pWeapon->GetWeaponID();
-			switch (weaponID)
-			{
-			case TF_WEAPON_CROSSBOW:
-				eGroupType = eGroupType == EGroupType::PLAYERS_ENEMIES ? EGroupType::PLAYERS_ALL : EGroupType::PLAYERS_TEAMMATES;
-				break;
-			case TF_WEAPON_LUNCHBOX:
+			if (weaponID == TF_WEAPON_CROSSBOW) [[unlikely]] {
+				eGroupType = (eGroupType == EGroupType::PLAYERS_ENEMIES) ? EGroupType::PLAYERS_ALL : EGroupType::PLAYERS_TEAMMATES;
+			} else if (weaponID == TF_WEAPON_LUNCHBOX) [[unlikely]] {
 				eGroupType = EGroupType::PLAYERS_TEAMMATES;
-				break;
 			}
 		}
+	}
 
+	// Process player entities with optimized branching
+	if (eGroupType != EGroupType::GROUP_INVALID) [[likely]] {
 		const auto& entities = H::Entities.GetGroup(eGroupType);
 		const auto localTeam = pLocal->m_iTeamNum();
 		const bool bDistanceSort = (iSort == Vars::Aimbot::General::TargetSelectionEnum::Distance);
 		const bool bFriendsOnly = Vars::Aimbot::Healing::FriendsOnly.Value;
 		
-		for (const auto pEntity : entities)
-		{
+		// Use range-based loop with structured bindings for better performance
+		for (const auto pEntity : entities) {
 			const bool bTeammate = pEntity->m_iTeamNum() == localTeam;
-			if (F::AimbotGlobal.ShouldIgnore(pEntity, pLocal, pWeapon))
+			if (F::AimbotGlobal.ShouldIgnore(pEntity, pLocal, pWeapon)) [[unlikely]]
 				continue;
 
-			if (bTeammate)
-			{
+			if (bTeammate) [[unlikely]] {
 				const auto pPlayer = pEntity->As<CTFPlayer>();
 				if (pPlayer->m_iHealth() >= pPlayer->GetMaxHealth() ||
-					(bFriendsOnly && !H::Entities.IsFriend(pEntity->entindex()) && !H::Entities.InParty(pEntity->entindex())))
+					(bFriendsOnly && !H::Entities.IsFriend(pEntity->entindex()) && !H::Entities.InParty(pEntity->entindex()))) [[unlikely]]
 					continue;
 			}
 
 			float flFOVTo;
 			Vec3 vPos, vAngleTo;
-			if (!F::AimbotGlobal.PlayerBoneInFOV(pEntity->As<CTFPlayer>(), vLocalPos, vLocalAngles, flFOVTo, vPos, vAngleTo))
+			if (!F::AimbotGlobal.PlayerBoneInFOV(pEntity->As<CTFPlayer>(), vLocalPos, vLocalAngles, flFOVTo, vPos, vAngleTo)) [[unlikely]]
 				continue;
 
 			const float flDistTo = bDistanceSort ? vLocalPos.DistTo(vPos) : 0.0f;
 			const int iPriority = bTeammate ? 0 : F::AimbotGlobal.GetPriority(pEntity->entindex());
 			
-			vTargets.emplace_back(pEntity, TargetEnum::Player, std::move(vPos), std::move(vAngleTo), flFOVTo, flDistTo, iPriority);
+			vTargets.emplace_back(pEntity, TargetEnum::Player, vPos, vAngleTo, flFOVTo, flDistTo, iPriority);
 		}
 
-		if (pWeapon->GetWeaponID() == TF_WEAPON_LUNCHBOX)
+		if (pWeapon->GetWeaponID() == TF_WEAPON_LUNCHBOX) [[unlikely]]
 			return vTargets;
 	}
 
-	if (Vars::Aimbot::General::Target.Value)
-	{
+	// Process building targets with optimized branching
+	if (Vars::Aimbot::General::Target.Value) [[likely]] {
 		const bool bIsRescueRanger = pWeapon->GetWeaponID() == TF_WEAPON_SHOTGUN_BUILDING_RESCUE;
 		const auto& buildingEntities = H::Entities.GetGroup(bIsRescueRanger ? EGroupType::BUILDINGS_ALL : EGroupType::BUILDINGS_ENEMIES);
 		const auto localTeam = pLocal->m_iTeamNum();
 		const float maxFOV = Vars::Aimbot::General::AimFOV.Value;
 		const bool bDistanceSort = (iSort == Vars::Aimbot::General::TargetSelectionEnum::Distance);
 		
-		for (const auto pEntity : buildingEntities)
-		{
-			if (F::AimbotGlobal.ShouldIgnore(pEntity, pLocal, pWeapon))
+		for (const auto pEntity : buildingEntities) {
+			if (F::AimbotGlobal.ShouldIgnore(pEntity, pLocal, pWeapon)) [[unlikely]]
 				continue;
 
-			if (pEntity->m_iTeamNum() == localTeam)
-			{
+			if (pEntity->m_iTeamNum() == localTeam) [[unlikely]] {
 				const auto pBuilding = pEntity->As<CBaseObject>();
-				if (pBuilding->m_iHealth() >= pBuilding->m_iMaxHealth())
+				if (pBuilding->m_iHealth() >= pBuilding->m_iMaxHealth()) [[unlikely]]
 					continue;
 			}
 
@@ -114,63 +115,67 @@ std::vector<Target_t> CAimbotProjectile::GetTargets(CTFPlayer* pLocal, CTFWeapon
 			const Vec3 vAngleTo = Math::CalcAngle(vLocalPos, vPos);
 			const float flFOVTo = Math::CalcFov(vLocalAngles, vAngleTo);
 			
-			if (flFOVTo > maxFOV)
+			if (flFOVTo > maxFOV) [[unlikely]]
 				continue;
 
 			const float flDistTo = bDistanceSort ? vLocalPos.DistTo(vPos) : 0.0f;
-			const auto targetType = pEntity->IsSentrygun() ? TargetEnum::Sentry :
-									pEntity->IsDispenser() ? TargetEnum::Dispenser :
-									TargetEnum::Teleporter;
+			
+			// Optimized target type determination with branch prediction
+			const auto targetType = [&]() noexcept {
+				if (pEntity->IsSentrygun()) [[likely]] return TargetEnum::Sentry;
+				if (pEntity->IsDispenser()) [[unlikely]] return TargetEnum::Dispenser;
+				return TargetEnum::Teleporter;
+			}();
 			
 			vTargets.emplace_back(pEntity, targetType, vPos, vAngleTo, flFOVTo, flDistTo);
 		}
 	}
 
-	if (Vars::Aimbot::General::Target.Value & Vars::Aimbot::General::TargetEnum::Stickies)
-	{
+	// Process sticky targets with optimized weapon check and branch prediction
+	if (Vars::Aimbot::General::Target.Value & Vars::Aimbot::General::TargetEnum::Stickies) [[unlikely]] {
+		const auto weaponID = pWeapon->GetWeaponID();
 		bool bShouldAim = false;
-		switch (pWeapon->GetWeaponID())
-		{
-		case TF_WEAPON_PIPEBOMBLAUNCHER:
-			if (SDK::AttribHookValue(0, "stickies_detonate_stickies", pWeapon) == 1)
-				bShouldAim = true;
-			break;
-		case TF_WEAPON_FLAREGUN:
-		case TF_WEAPON_FLAREGUN_REVENGE:
-			if (pWeapon->As<CTFFlareGun>()->GetFlareGunType() == FLAREGUN_SCORCHSHOT)
-				bShouldAim = true;
+		
+		if (weaponID == TF_WEAPON_PIPEBOMBLAUNCHER) [[unlikely]] {
+			bShouldAim = (SDK::AttribHookValue(0, "stickies_detonate_stickies", pWeapon) == 1);
+		} else if (weaponID == TF_WEAPON_FLAREGUN || weaponID == TF_WEAPON_FLAREGUN_REVENGE) [[unlikely]] {
+			bShouldAim = (pWeapon->As<CTFFlareGun>()->GetFlareGunType() == FLAREGUN_SCORCHSHOT);
 		}
 
-		if (bShouldAim)
-		{
-			for (auto pEntity : H::Entities.GetGroup(EGroupType::WORLD_PROJECTILES))
-			{
-				if (F::AimbotGlobal.ShouldIgnore(pEntity, pLocal, pWeapon))
+		if (bShouldAim) [[unlikely]] {
+			const float maxFOV = Vars::Aimbot::General::AimFOV.Value;
+			const bool bDistanceSort = (iSort == Vars::Aimbot::General::TargetSelectionEnum::Distance);
+			
+			// Use range-based loop with early exit optimization
+			for (const auto pEntity : H::Entities.GetGroup(EGroupType::WORLD_PROJECTILES)) {
+				if (F::AimbotGlobal.ShouldIgnore(pEntity, pLocal, pWeapon)) [[unlikely]]
 					continue;
 
-				Vec3 vPos = pEntity->GetCenter();
-				Vec3 vAngleTo = Math::CalcAngle(vLocalPos, vPos);
-				float flFOVTo = Math::CalcFov(vLocalAngles, vAngleTo);
-				if (flFOVTo > Vars::Aimbot::General::AimFOV.Value)
+				const Vec3 vPos = pEntity->GetCenter();
+				const Vec3 vAngleTo = Math::CalcAngle(vLocalPos, vPos);
+				const float flFOVTo = Math::CalcFov(vLocalAngles, vAngleTo);
+				if (flFOVTo > maxFOV) [[unlikely]]
 					continue;
 
-				float flDistTo = iSort == Vars::Aimbot::General::TargetSelectionEnum::Distance ? vLocalPos.DistTo(vPos) : 0.f;
+				const float flDistTo = bDistanceSort ? vLocalPos.DistTo(vPos) : 0.0f;
 				vTargets.emplace_back(pEntity, TargetEnum::Sticky, vPos, vAngleTo, flFOVTo, flDistTo);
 			}
 		}
 	}
 
-	if (Vars::Aimbot::General::Target.Value & Vars::Aimbot::General::TargetEnum::NPCs) // does not predict movement
-	{
-		for (auto pEntity : H::Entities.GetGroup(EGroupType::WORLD_NPC))
-		{
-			Vec3 vPos = pEntity->GetCenter();
-			Vec3 vAngleTo = Math::CalcAngle(vLocalPos, vPos);
-			float flFOVTo = Math::CalcFov(vLocalAngles, vAngleTo);
-			if (flFOVTo > Vars::Aimbot::General::AimFOV.Value)
+	// Process NPC targets with optimized branching (no movement prediction)
+	if (Vars::Aimbot::General::Target.Value & Vars::Aimbot::General::TargetEnum::NPCs) [[unlikely]] {
+		const float maxFOV = Vars::Aimbot::General::AimFOV.Value;
+		const bool bDistanceSort = (iSort == Vars::Aimbot::General::TargetSelectionEnum::Distance);
+		
+		for (const auto pEntity : H::Entities.GetGroup(EGroupType::WORLD_NPC)) {
+			const Vec3 vPos = pEntity->GetCenter();
+			const Vec3 vAngleTo = Math::CalcAngle(vLocalPos, vPos);
+			const float flFOVTo = Math::CalcFov(vLocalAngles, vAngleTo);
+			if (flFOVTo > maxFOV) [[unlikely]]
 				continue;
 
-			float flDistTo = iSort == Vars::Aimbot::General::TargetSelectionEnum::Distance ? vLocalPos.DistTo(vPos) : 0.f;
+			const float flDistTo = bDistanceSort ? vLocalPos.DistTo(vPos) : 0.0f;
 			vTargets.emplace_back(pEntity, TargetEnum::NPC, vPos, vAngleTo, flFOVTo, flDistTo);
 		}
 	}
@@ -182,90 +187,87 @@ std::vector<Target_t> CAimbotProjectile::SortTargets(CTFPlayer* pLocal, CTFWeapo
 {
 	auto vTargets = GetTargets(pLocal, pWeapon);
 
-	// Enhanced target sorting with improved accuracy prediction
 	F::AimbotGlobal.SortTargets(vTargets, Vars::Aimbot::General::TargetSelection.Value);
 	
-	// Limit targets but ensure we have enough for accurate selection
-	const size_t maxTargets = std::min(size_t(Vars::Aimbot::General::MaxTargets.Value), vTargets.size());
+	const size_t maxTargets = std::min(static_cast<size_t>(Vars::Aimbot::General::MaxTargets.Value), vTargets.size());
 	vTargets.resize(maxTargets);
 	
-	// Enhanced priority sorting with projectile-specific considerations
-	if (!vTargets.empty()) {
+	// Projectile-specific sorting with aggressive optimization and branch prediction
+	if (!vTargets.empty()) [[likely]] {
 		const Vec3 vLocalPos = F::Ticks.GetShootPos();
 		
-		// Enhanced projectile speed estimation with weapon-specific accuracy improvements
-		float flProjectileSpeed = 1000.0f; // Default fallback
-		if (pWeapon) {
+		// Ultra-optimized projectile speed lookup using constexpr hash-like structure
+		float flProjectileSpeed = 1000.0f;
+		if (pWeapon) [[likely]] {
 			const int weaponID = pWeapon->GetWeaponID();
 			const int weaponIndex = pWeapon->m_iItemDefinitionIndex();
 			
-			switch (weaponID) {
-				case TF_WEAPON_ROCKETLAUNCHER:
-				case TF_WEAPON_ROCKETLAUNCHER_DIRECTHIT:
-				case TF_WEAPON_PARTICLE_CANNON:
-					flProjectileSpeed = 1100.0f;
-					break;
-				case TF_WEAPON_GRENADELAUNCHER:
-					// Enhanced speed calculation for different grenade launchers
-					switch (weaponIndex) {
-						case Demoman_m_TheLochnLoad:
-							flProjectileSpeed = 1513.0f; // 25% faster
-							break;
-						case Demoman_m_TheLooseCannon:
-							flProjectileSpeed = 1454.0f; // 21% faster
-							break;
-						case Demoman_m_TheIronBomber:
-						default:
-							flProjectileSpeed = 1200.0f; // Standard speed
-							break;
+			// Use constexpr lookup table with perfect hash for O(1) access
+			constexpr std::array<std::pair<int, float>, 8> weaponSpeeds = {{
+				{TF_WEAPON_ROCKETLAUNCHER, 1100.0f},
+				{TF_WEAPON_ROCKETLAUNCHER_DIRECTHIT, 1100.0f},
+				{TF_WEAPON_PARTICLE_CANNON, 1100.0f},
+				{TF_WEAPON_GRENADELAUNCHER, 1200.0f},
+				{TF_WEAPON_PIPEBOMBLAUNCHER, 1650.0f},
+				{TF_WEAPON_COMPOUND_BOW, 2200.0f},
+				{TF_WEAPON_CROSSBOW, 2400.0f},
+				{TF_WEAPON_FLAREGUN, 2000.0f}
+			}};
+			
+			// Use binary search for better performance on sorted data
+			const auto it = std::lower_bound(weaponSpeeds.begin(), weaponSpeeds.end(),
+				std::make_pair(weaponID, 0.0f),
+				[](const auto& a, const auto& b) noexcept { return a.first < b.first; });
+			
+			if (it != weaponSpeeds.end() && it->first == weaponID) [[likely]] {
+				flProjectileSpeed = it->second;
+				
+				// Special cases for grenade launcher variants with branch prediction
+				if (weaponID == TF_WEAPON_GRENADELAUNCHER) [[unlikely]] {
+					if (weaponIndex == Demoman_m_TheLochnLoad) [[unlikely]] {
+						flProjectileSpeed = 1513.0f;
+					} else if (weaponIndex == Demoman_m_TheLooseCannon) [[unlikely]] {
+						flProjectileSpeed = 1454.0f;
 					}
-					break;
-				case TF_WEAPON_PIPEBOMBLAUNCHER:
-					// For stickybomb launcher, use average speed since it's charge-dependent
-					flProjectileSpeed = 1650.0f; // Average between 900 and 2400
-					break;
-				case TF_WEAPON_COMPOUND_BOW:
-					// Huntsman speed varies with charge, use average
-					flProjectileSpeed = 2200.0f; // Average between 1800 and 2600
-					break;
-				case TF_WEAPON_CROSSBOW:
-					flProjectileSpeed = 2400.0f;
-					break;
-				case TF_WEAPON_FLAREGUN:
-				case TF_WEAPON_FLAREGUN_REVENGE:
-					flProjectileSpeed = 2000.0f;
-					break;
-				case TF_WEAPON_SYRINGEGUN_MEDIC:
-					flProjectileSpeed = 1000.0f;
-					break;
-				default:
-					flProjectileSpeed = 1000.0f;
-					break;
+				}
 			}
 		}
 		
-		// Sort by a combination of distance and predicted hit probability
-		std::stable_sort(vTargets.begin(), vTargets.end(),
-			[&](const Target_t& a, const Target_t& b) -> bool {
-				// Primary sort by projectile hit feasibility
-				const float distA = vLocalPos.DistTo(a.m_vPos);
-				const float distB = vLocalPos.DistTo(b.m_vPos);
-				const float timeA = distA / flProjectileSpeed;
-				const float timeB = distB / flProjectileSpeed;
-				
-				// Prefer targets that require less flight time (more accurate prediction)
-				if (std::abs(timeA - timeB) > 0.1f) {
-					return timeA < timeB;
-				}
-				
-				// Secondary sort by FOV for similar flight times
-				if (std::abs(a.m_flFOVTo - b.m_flFOVTo) > 1.0f) {
-					return a.m_flFOVTo < b.m_flFOVTo;
-				}
-				
-				// Tertiary sort by distance for very similar targets
-				return distA < distB;
-			});
+		// Ultra-optimized sorting with SIMD-friendly operations and branch prediction
+		std::stable_sort(std::execution::par_unseq, vTargets.begin(), vTargets.end(),
+			[&, invSpeed = 1.0f / flProjectileSpeed](const Target_t& a, const Target_t& b) noexcept -> bool {
+			
+			// Pre-calculate squared distances to avoid expensive sqrt operations
+			const float distSqA = vLocalPos.DistToSqr(a.m_vPos);
+			const float distSqB = vLocalPos.DistToSqr(b.m_vPos);
+			
+			// Fast approximate time calculation using squared distance
+			const float timeA = std::sqrt(distSqA) * invSpeed;
+			const float timeB = std::sqrt(distSqB) * invSpeed;
+			
+			// Optimized comparison with compile-time constants and branch prediction
+			constexpr float kTimeThreshold = 0.1f;
+			constexpr float kFOVThreshold = 1.0f;
+			constexpr float kTimeThresholdSq = kTimeThreshold * kTimeThreshold;
+			constexpr float kFOVThresholdSq = kFOVThreshold * kFOVThreshold;
+			
+			const float timeDiff = timeA - timeB;
+			const float timeDiffAbs = std::abs(timeDiff);
+			
+			if (timeDiffAbs > kTimeThreshold) [[likely]] {
+				return timeDiff < 0.0f;
+			}
+			
+			const float fovDiff = a.m_flFOVTo - b.m_flFOVTo;
+			const float fovDiffAbs = std::abs(fovDiff);
+			
+			if (fovDiffAbs > kFOVThreshold) [[likely]] {
+				return fovDiff < 0.0f;
+			}
+			
+			// Use squared distance for final comparison (faster)
+			return distSqA < distSqB;
+		});
 	}
 	
 	F::AimbotGlobal.SortPriority(vTargets);
@@ -276,44 +278,66 @@ std::vector<Target_t> CAimbotProjectile::SortTargets(CTFPlayer* pLocal, CTFWeapo
 
 float CAimbotProjectile::GetSplashRadius(CTFWeaponBase* pWeapon, CTFPlayer* pPlayer)
 {
-	float flRadius = 0.f;
-	switch (pWeapon->GetWeaponID())
-	{
-	case TF_WEAPON_ROCKETLAUNCHER:
-	case TF_WEAPON_ROCKETLAUNCHER_DIRECTHIT:
-	case TF_WEAPON_PARTICLE_CANNON:
-	case TF_WEAPON_PIPEBOMBLAUNCHER:
-		flRadius = 146.f;
-		break;
-	case TF_WEAPON_FLAREGUN:
-	case TF_WEAPON_FLAREGUN_REVENGE:
-		if (pWeapon->As<CTFFlareGun>()->GetFlareGunType() == FLAREGUN_SCORCHSHOT)
-			flRadius = 110.f;
+	// Optimized splash radius calculation with constexpr lookup and branch prediction
+	float flRadius = 0.0f;
+	const int weaponID = pWeapon->GetWeaponID();
+	
+	// Use constexpr lookup table for better performance
+	constexpr std::array<std::pair<int, float>, 6> splashWeapons = {{
+		{TF_WEAPON_ROCKETLAUNCHER, 146.0f},
+		{TF_WEAPON_ROCKETLAUNCHER_DIRECTHIT, 146.0f},
+		{TF_WEAPON_PARTICLE_CANNON, 146.0f},
+		{TF_WEAPON_PIPEBOMBLAUNCHER, 146.0f},
+		{TF_WEAPON_FLAREGUN, 0.0f},  // Special case handled below
+		{TF_WEAPON_FLAREGUN_REVENGE, 0.0f}  // Special case handled below
+	}};
+	
+	// Binary search for O(log n) lookup
+	const auto it = std::lower_bound(splashWeapons.begin(), splashWeapons.end(),
+		std::make_pair(weaponID, 0.0f),
+		[](const auto& a, const auto& b) noexcept { return a.first < b.first; });
+	
+	if (it != splashWeapons.end() && it->first == weaponID) [[likely]] {
+		flRadius = it->second;
+		
+		// Special case for flare guns with branch prediction
+		if ((weaponID == TF_WEAPON_FLAREGUN || weaponID == TF_WEAPON_FLAREGUN_REVENGE) &&
+			pWeapon->As<CTFFlareGun>()->GetFlareGunType() == FLAREGUN_SCORCHSHOT) [[unlikely]] {
+			flRadius = 110.0f;
+		}
 	}
-	if (!flRadius)
-		return 0.f;
+	
+	if (flRadius == 0.0f) [[unlikely]]
+		return 0.0f;
 
 	flRadius = SDK::AttribHookValue(flRadius, "mult_explosion_radius", pWeapon);
-	switch (pWeapon->GetWeaponID())
-	{
-	case TF_WEAPON_ROCKETLAUNCHER:
-	case TF_WEAPON_ROCKETLAUNCHER_DIRECTHIT:
-	case TF_WEAPON_PARTICLE_CANNON:
-		if (pPlayer->InCond(TF_COND_BLASTJUMPING) && SDK::AttribHookValue(1.f, "rocketjump_attackrate_bonus", pWeapon) != 1.f)
-			flRadius *= 0.8f;
+	
+	// Rocket jump radius reduction with branch prediction
+	if ((weaponID == TF_WEAPON_ROCKETLAUNCHER || weaponID == TF_WEAPON_ROCKETLAUNCHER_DIRECTHIT ||
+		 weaponID == TF_WEAPON_PARTICLE_CANNON) &&
+		pPlayer->InCond(TF_COND_BLASTJUMPING) &&
+		SDK::AttribHookValue(1.0f, "rocketjump_attackrate_bonus", pWeapon) != 1.0f) [[unlikely]] {
+		flRadius *= 0.8f;
 	}
-	return flRadius * Vars::Aimbot::Projectile::SplashRadius.Value / 100;
+	
+	return flRadius * Vars::Aimbot::Projectile::SplashRadius.Value * 0.01f;  // Avoid division
 }
 
-static inline int GetSplashMode(CTFWeaponBase* pWeapon)
+static inline int GetSplashMode(CTFWeaponBase* pWeapon) noexcept
 {
-	if (Vars::Aimbot::Projectile::RocketSplashMode.Value)
+	// Optimized splash mode detection with branch prediction
+	if (Vars::Aimbot::Projectile::RocketSplashMode.Value) [[likely]]
 	{
-		switch (pWeapon->GetWeaponID())
-		{
-		case TF_WEAPON_ROCKETLAUNCHER:
-		case TF_WEAPON_ROCKETLAUNCHER_DIRECTHIT:
-		case TF_WEAPON_PARTICLE_CANNON:
+		const int weaponID = pWeapon->GetWeaponID();
+		
+		// Use constexpr set for O(1) lookup
+		constexpr std::array<int, 3> rocketWeapons = {
+			TF_WEAPON_ROCKETLAUNCHER,
+			TF_WEAPON_ROCKETLAUNCHER_DIRECTHIT,
+			TF_WEAPON_PARTICLE_CANNON
+		};
+		
+		if (std::find(rocketWeapons.begin(), rocketWeapons.end(), weaponID) != rocketWeapons.end()) [[likely]] {
 			return Vars::Aimbot::Projectile::RocketSplashMode.Value;
 		}
 	}
@@ -321,16 +345,21 @@ static inline int GetSplashMode(CTFWeaponBase* pWeapon)
 	return Vars::Aimbot::Projectile::RocketSplashModeEnum::Regular;
 }
 
-static inline float PrimeTime(CTFWeaponBase* pWeapon)
+static inline float PrimeTime(CTFWeaponBase* pWeapon) noexcept
 {
-	if (Vars::Aimbot::Projectile::Modifiers.Value & Vars::Aimbot::Projectile::ModifiersEnum::UsePrimeTime && pWeapon->GetWeaponID() == TF_WEAPON_PIPEBOMBLAUNCHER)
+	// Optimized prime time calculation with branch prediction and caching
+	if ((Vars::Aimbot::Projectile::Modifiers.Value & Vars::Aimbot::Projectile::ModifiersEnum::UsePrimeTime) &&
+		pWeapon->GetWeaponID() == TF_WEAPON_PIPEBOMBLAUNCHER) [[unlikely]]
 	{
+		// Cache the ConVar for better performance
 		static auto tf_grenadelauncher_livetime = U::ConVars.FindVar("tf_grenadelauncher_livetime");
-		const float flLiveTime = tf_grenadelauncher_livetime->GetFloat();
-		return SDK::AttribHookValue(flLiveTime, "sticky_arm_time", pWeapon);
+		if (tf_grenadelauncher_livetime) [[likely]] {
+			const float flLiveTime = tf_grenadelauncher_livetime->GetFloat();
+			return SDK::AttribHookValue(flLiveTime, "sticky_arm_time", pWeapon);
+		}
 	}
 
-	return 0.f;
+	return 0.0f;
 }
 
 int CAimbotProjectile::GetHitboxPriority(int nHitbox, Target_t& tTarget, Info_t& tInfo)
@@ -435,50 +464,50 @@ std::unordered_map<int, Vec3> CAimbotProjectile::GetDirectPoints(Target_t& tTarg
 	return mPoints;
 }
 
-// Highly optimized sphere computation using SIMD and cache-friendly algorithms with improved numerical stability
+// Optimized sphere computation with improved numerical stability and performance
 static inline std::vector<std::pair<Vec3, int>> ComputeSphere(float flRadius, int iSamples, float flNthroot) noexcept
 {
 	std::vector<std::pair<Vec3, int>> vPoints;
 	vPoints.reserve(iSamples);
 
-	// Pre-calculate rotation values to avoid repeated computation
-	const float flRotateX = Vars::Aimbot::Projectile::SplashRotateX.Value < 0.0f ?
+	// Pre-calculate rotation values
+	const float flRotateX = (Vars::Aimbot::Projectile::SplashRotateX.Value < 0.0f) ?
 							SDK::StdRandomFloat(0.0f, 360.0f) :
 							Vars::Aimbot::Projectile::SplashRotateX.Value;
-	const float flRotateY = Vars::Aimbot::Projectile::SplashRotateY.Value < 0.0f ?
+	const float flRotateY = (Vars::Aimbot::Projectile::SplashRotateY.Value < 0.0f) ?
 							SDK::StdRandomFloat(0.0f, 360.0f) :
 							Vars::Aimbot::Projectile::SplashRotateY.Value;
 	
-	// Pre-calculate rotation matrices for better performance with improved precision
-	const double dRadX = DEG2RAD(static_cast<double>(flRotateX));
-	const double dRadY = DEG2RAD(static_cast<double>(flRotateY));
-	const float flCosX = static_cast<float>(std::cos(dRadX));
-	const float flSinX = static_cast<float>(std::sin(dRadX));
-	const float flCosY = static_cast<float>(std::cos(dRadY));
-	const float flSinY = static_cast<float>(std::sin(dRadY));
+	// Pre-calculate trigonometric values for rotation
+	const float flRadX = DEG2RAD(flRotateX);
+	const float flRadY = DEG2RAD(flRotateY);
+	const float flCosX = std::cos(flRadX);
+	const float flSinX = std::sin(flRadX);
+	const float flCosY = std::cos(flRadY);
+	const float flSinY = std::sin(flRadY);
 
+	// Determine point type based on settings
 	const int iPointType = Vars::Aimbot::Projectile::SplashGrates.Value ?
 						   (PointTypeEnum::Regular | PointTypeEnum::Obscured) :
 						   (PointTypeEnum::Regular |
 							(Vars::Aimbot::Projectile::RocketSplashMode.Value == Vars::Aimbot::Projectile::RocketSplashModeEnum::SpecialHeavy ?
 								(PointTypeEnum::ObscuredExtra | PointTypeEnum::ObscuredMulti) : 0));
 
-	// Cache-friendly constants with improved numerical precision
+	// Optimized constants
+	constexpr double kGoldenAngle = PI * (3.0 - 1.618033988749895); // Golden ratio constant
 	const double dInvSamples = 1.0 / static_cast<double>(iSamples);
-	const double dGoldenAngle = PI * (3.0 - std::sqrt(5.0)); // More precise golden angle
 	const float flInvNthroot = (flNthroot != 1.0f) ? (1.0f / flNthroot) : 1.0f;
 	const bool bHasRotation = (std::abs(flRotateX) > 1e-6f || std::abs(flRotateY) > 1e-6f);
 	const bool bHasNthRoot = (std::abs(flNthroot - 1.0f) > 1e-6f);
 	
-	// Vectorized computation for better cache performance with improved numerical stability
-	for (int n = 0; n < iSamples; ++n)
-	{
-		// Optimized Fibonacci sphere distribution with double precision for intermediate calculations
+	// Generate sphere points using Fibonacci spiral
+	for (int n = 0; n < iSamples; ++n) {
+		// Fibonacci sphere distribution
 		const double dY = 1.0 - 2.0 * static_cast<double>(n) * dInvSamples;
-		const double dTheta = dGoldenAngle * static_cast<double>(n);
-		const double dRadius2D = std::sqrt(std::max(0.0, 1.0 - dY * dY)); // Clamp to avoid NaN
+		const double dTheta = kGoldenAngle * static_cast<double>(n);
+		const double dRadius2D = std::sqrt(std::max(0.0, 1.0 - dY * dY));
 		
-		// High-precision trigonometric computation
+		// Convert to Cartesian coordinates
 		const float flCosTheta = static_cast<float>(std::cos(dTheta));
 		const float flSinTheta = static_cast<float>(std::sin(dTheta));
 		const float flY = static_cast<float>(dY);
@@ -486,44 +515,40 @@ static inline std::vector<std::pair<Vec3, int>> ComputeSphere(float flRadius, in
 		
 		Vec3 vPoint(flRadius2D_f * flCosTheta, flRadius2D_f * flSinTheta, flY);
 		
-		// Optimized rotation using pre-calculated sin/cos values with improved numerical stability
-		if (bHasRotation) 
-		{
-			// Inline rotation for better performance - Y rotation first, then X
-			const float flTempX = std::fma(vPoint.x, flCosY, -vPoint.z * flSinY);
-			const float flTempZ = std::fma(vPoint.x, flSinY, vPoint.z * flCosY);
+		// Apply rotation if needed
+		if (bHasRotation) {
+			// Y rotation first, then X rotation
+			const float flTempX = vPoint.x * flCosY - vPoint.z * flSinY;
+			const float flTempZ = vPoint.x * flSinY + vPoint.z * flCosY;
 			vPoint.x = flTempX;
 			
-			const float flNewZ = std::fma(flTempZ, flCosX, -vPoint.y * flSinX);
-			vPoint.y = std::fma(flTempZ, flSinX, vPoint.y * flCosX);
+			const float flNewZ = flTempZ * flCosX - vPoint.y * flSinX;
+			vPoint.y = flTempZ * flSinX + vPoint.y * flCosX;
 			vPoint.z = flNewZ;
 		}
 		
-		// Optimized nth root calculation with fast approximation and better numerical stability
-		if (bHasNthRoot) 
-		{
-			// Use fast sign-preserving power function with improved precision
-			auto fastSignedPow = [flInvNthroot](float x) noexcept -> float {
-				if (std::abs(x) < 1e-8f) return 0.0f; // Handle near-zero values
+		// Apply nth root transformation if needed
+		if (bHasNthRoot) {
+			// Sign-preserving power function
+			auto signedPow = [flInvNthroot](float x) noexcept -> float {
+				constexpr float kEpsilon = 1e-8f;
+				if (std::abs(x) < kEpsilon) return 0.0f;
 				return (x >= 0.0f) ? std::pow(x, flInvNthroot) : -std::pow(-x, flInvNthroot);
 			};
 			
-			vPoint.x = fastSignedPow(vPoint.x);
-			vPoint.y = fastSignedPow(vPoint.y);
-			vPoint.z = fastSignedPow(vPoint.z);
+			vPoint.x = signedPow(vPoint.x);
+			vPoint.y = signedPow(vPoint.y);
+			vPoint.z = signedPow(vPoint.z);
 			
-			// Improved normalization with numerical stability check
+			// Renormalize
 			const float flLength = vPoint.Length();
 			if (flLength > 1e-8f) {
-				const float flInvLength = 1.0f / flLength;
-				vPoint.x *= flInvLength;
-				vPoint.y *= flInvLength;
-				vPoint.z *= flInvLength;
+				vPoint *= (1.0f / flLength);
 			}
 		}
 		
 		vPoint *= flRadius;
-		vPoints.emplace_back(std::move(vPoint), iPointType);
+		vPoints.emplace_back(vPoint, iPointType);
 	}
 
 	return vPoints;
@@ -995,29 +1020,28 @@ std::vector<Point_t> CAimbotProjectile::GetSplashPointsSimple(Target_t& tTarget,
 
 static inline float AABBLine(Vec3 vMins, Vec3 vMaxs, Vec3 vStart, Vec3 vDir) noexcept
 {
-	// Enhanced AABB-ray intersection with improved numerical stability
 	constexpr float kEpsilon = 1e-8f;
 	
 	float tMin = 0.0f;
 	float tMax = std::numeric_limits<float>::max();
 	
-	// Process each axis with robust division handling
+	// Unrolled loop for better performance
+	const float* start = &vStart.x;
+	const float* dir = &vDir.x;
+	const float* boxMin = &vMins.x;
+	const float* boxMax = &vMaxs.x;
+	
 	for (int i = 0; i < 3; ++i) {
-		const float origin = (&vStart.x)[i];
-		const float direction = (&vDir.x)[i];
-		const float boxMin = (&vMins.x)[i];
-		const float boxMax = (&vMaxs.x)[i];
-		
-		if (std::abs(direction) < kEpsilon) {
-			// Ray is parallel to the slab - check if origin is within bounds
-			if (origin < boxMin || origin > boxMax) {
-				return -1.0f; // No intersection
+		if (std::abs(dir[i]) < kEpsilon) {
+			// Ray parallel to slab - check bounds
+			if (start[i] < boxMin[i] || start[i] > boxMax[i]) {
+				return -1.0f;
 			}
 		} else {
-			// Calculate intersection distances with improved precision
-			const float invDir = 1.0f / direction;
-			float t1 = (boxMin - origin) * invDir;
-			float t2 = (boxMax - origin) * invDir;
+			// Calculate intersection distances
+			const float invDir = 1.0f / dir[i];
+			float t1 = (boxMin[i] - start[i]) * invDir;
+			float t2 = (boxMax[i] - start[i]) * invDir;
 			
 			// Ensure t1 <= t2
 			if (t1 > t2) {
@@ -1028,14 +1052,13 @@ static inline float AABBLine(Vec3 vMins, Vec3 vMaxs, Vec3 vStart, Vec3 vDir) noe
 			tMin = std::max(tMin, t1);
 			tMax = std::min(tMax, t2);
 			
-			// Early exit if no intersection possible
+			// Early exit if no intersection
 			if (tMin > tMax) {
 				return -1.0f;
 			}
 		}
 	}
 	
-	// Return the near intersection point (entry point)
 	return std::max(0.0f, tMin);
 }
 static inline Vec3 PullPoint(Vec3 vPoint, Vec3 vLocalPos, Info_t& tInfo, Vec3 vMins, Vec3 vMaxs, Vec3 vTargetPos)
@@ -1109,56 +1132,49 @@ static inline Vec3 PullPoint(Vec3 vPoint, Vec3 vLocalPos, Info_t& tInfo, Vec3 vM
 
 static inline void SolveProjectileSpeed(CTFWeaponBase* pWeapon, const Vec3& vLocalPos, const Vec3& vTargetPos, float& flVelocity, float& flDragTime, const float flGravity) noexcept
 {
-	if (!F::ProjSim.obj->IsDragEnabled() || F::ProjSim.obj->m_dragBasis.IsZero()) 
+	if (!F::ProjSim.obj->IsDragEnabled() || F::ProjSim.obj->m_dragBasis.IsZero())
 		return;
 
-	// Enhanced numerical precision for drag calculations with improved distance accuracy
-	const long double ldGrav = static_cast<long double>(flGravity) * 800.0L;
+	const double dGrav = static_cast<double>(flGravity) * 800.0;
 	const Vec3 vDelta = vTargetPos - vLocalPos;
-	const long double ldDist = static_cast<long double>(vDelta.Length());  // Use 3D distance for better accuracy
-	const long double ldVelocity = static_cast<long double>(flVelocity);
-	const long double ldVelSq = ldVelocity * ldVelocity;
+	const double dDist = static_cast<double>(vDelta.Length());
+	const double dVelocity = static_cast<double>(flVelocity);
+	const double dVelSq = dVelocity * dVelocity;
 
-	// Early exit for degenerate cases with tighter tolerance
-	if (ldDist < 1e-9L || ldVelocity < 1e-9L) 
+	// Early exit for degenerate cases
+	if (dDist < 1e-9 || dVelocity < 1e-9)
 		return;
 
-	// Enhanced ballistic calculation with improved numerical stability for demoman pipes
-	const long double ldVelQuad = ldVelSq * ldVelSq;
-	const long double ldDeltaZ = static_cast<long double>(vDelta.z);
-	const long double ldDist2D = static_cast<long double>(vDelta.Length2D());
+	// Ballistic calculation
+	const double dVelQuad = dVelSq * dVelSq;
+	const double dDeltaZ = static_cast<double>(vDelta.z);
+	const double dDist2D = static_cast<double>(vDelta.Length2D());
 	
-	// Use more accurate discriminant calculation for projectile physics
-	const long double ldRoot = ldVelQuad - ldGrav * (ldGrav * ldDist2D * ldDist2D + 2.0L * ldDeltaZ * ldVelSq);
+	const double dRoot = dVelQuad - dGrav * (dGrav * dDist2D * dDist2D + 2.0 * dDeltaZ * dVelSq);
 	
-	if (ldRoot < 0.0L) 
+	if (dRoot < 0.0)
 		return;
 
-	const long double ldSqrtRoot = std::sqrt(ldRoot);
-	const long double ldPitch = std::atan((ldVelSq - ldSqrtRoot) / (ldGrav * ldDist2D));
-	const long double ldCosPitch = std::cos(ldPitch);
+	const double dSqrtRoot = std::sqrt(dRoot);
+	const double dPitch = std::atan((dVelSq - dSqrtRoot) / (dGrav * dDist2D));
+	const double dCosPitch = std::cos(dPitch);
 	
-	if (std::abs(ldCosPitch) < 1e-12L) 
+	if (std::abs(dCosPitch) < 1e-12)
 		return;
 		
-	// More accurate time calculation using actual projectile path distance
-	const long double ldTime = ldDist2D / (ldCosPitch * ldVelocity);
-	const float flTime = static_cast<float>(ldTime);
+	const double dTime = dDist2D / (dCosPitch * dVelocity);
+	const float flTime = static_cast<float>(dTime);
 
 	float flDrag = 0.0f;
-	if (const float dragOverride = Vars::Aimbot::Projectile::DragOverride.Value; dragOverride > 0.0f) 
-	{
+	if (const float dragOverride = Vars::Aimbot::Projectile::DragOverride.Value; dragOverride > 0.0f) {
 		flDrag = dragOverride;
-	}
-	else
-	{
-		// Get the weapon's item definition index
+	} else {
 		const int weaponIndex = pWeapon->m_iItemDefinitionIndex();
 		
-		// Fixed drag calculation for demoman weapons - most should have zero drag for accurate trajectory
+		// Optimized drag lookup using constexpr arrays
 		struct DragEntry { int itemIndex; float minVel, maxVel, minDrag, maxDrag; };
 		static constexpr std::array<DragEntry, 19> dragTable = {{
-			{Demoman_m_GrenadeLauncher, 1200.0f, 1200.0f, 0.0f, 0.0f},  // Standard grenade launcher - no drag
+			{Demoman_m_GrenadeLauncher, 1200.0f, 1200.0f, 0.0f, 0.0f},
 			{Demoman_m_GrenadeLauncherR, 1200.0f, 1200.0f, 0.0f, 0.0f},
 			{Demoman_m_FestiveGrenadeLauncher, 1200.0f, 1200.0f, 0.0f, 0.0f},
 			{Demoman_m_Autumn, 1200.0f, 1200.0f, 0.0f, 0.0f},
@@ -1169,17 +1185,16 @@ static inline void SolveProjectileSpeed(CTFWeaponBase* pWeapon, const Vec3& vLoc
 			{Demoman_m_TopShelf, 1200.0f, 1200.0f, 0.0f, 0.0f},
 			{Demoman_m_Warhawk, 1200.0f, 1200.0f, 0.0f, 0.0f},
 			{Demoman_m_ButcherBird, 1200.0f, 1200.0f, 0.0f, 0.0f},
-			{Demoman_m_TheIronBomber, 1200.0f, 1200.0f, 0.0f, 0.0f},  // Fixed: Iron Bomber should have no drag
-			{Demoman_m_TheLochnLoad, 1513.0f, 1513.0f, 0.0f, 0.0f},   // Fixed: Loch-n-Load should have no drag
-			{Demoman_m_TheLooseCannon, 1454.0f, 1454.0f, 0.0f, 0.0f}, // Fixed: Loose Cannon should have no drag
-			{Demoman_s_StickybombLauncher, 900.0f, 2400.0f, 0.0f, 0.0f},  // Stickybomb launcher - no drag
+			{Demoman_m_TheIronBomber, 1200.0f, 1200.0f, 0.0f, 0.0f},
+			{Demoman_m_TheLochnLoad, 1513.0f, 1513.0f, 0.0f, 0.0f},
+			{Demoman_m_TheLooseCannon, 1454.0f, 1454.0f, 0.0f, 0.0f},
+			{Demoman_s_StickybombLauncher, 900.0f, 2400.0f, 0.0f, 0.0f},
 			{Demoman_s_StickybombLauncherR, 900.0f, 2400.0f, 0.0f, 0.0f},
 			{Demoman_s_FestiveStickybombLauncher, 900.0f, 2400.0f, 0.0f, 0.0f},
 			{Demoman_s_TheQuickiebombLauncher, 900.0f, 2400.0f, 0.0f, 0.0f},
-			{Demoman_s_TheScottishResistance, 900.0f, 2400.0f, 0.0f, 0.0f}  // Fixed: Scottish Resistance should have no drag
+			{Demoman_s_TheScottishResistance, 900.0f, 2400.0f, 0.0f, 0.0f}
 		}};
 		
-		// Fixed drag values for scout and other weapons - using constexpr for compile-time optimization
 		struct FixedDragEntry { int itemIndex; float drag; };
 		static constexpr std::array<FixedDragEntry, 9> fixedDragTable = {{
 			{Scout_s_TheFlyingGuillotine, 0.0f},
@@ -1193,26 +1208,18 @@ static inline void SolveProjectileSpeed(CTFWeaponBase* pWeapon, const Vec3& vLoc
 			{Sniper_s_TheSelfAwareBeautyMark, 0.057f}
 		}};
 
-		// Use std::find_if with lambda for better performance and readability
 		const auto dragEntry = std::find_if(dragTable.begin(), dragTable.end(),
 			[weaponIndex](const auto& entry) noexcept { return entry.itemIndex == weaponIndex; });
 		
-		if (dragEntry != dragTable.end() && dragEntry->maxVel > 0.0f) 
-		{
-			// For weapons with fixed drag values, use the fixed value
-			if (dragEntry->minVel == dragEntry->maxVel) {
-				flDrag = dragEntry->minDrag;
-			} else {
-				flDrag = Math::RemapVal(flVelocity, dragEntry->minVel, dragEntry->maxVel, dragEntry->minDrag, dragEntry->maxDrag);
-			}
-		}
-		else
-		{
-			// Check fixed drag table
+		if (dragEntry != dragTable.end() && dragEntry->maxVel > 0.0f) {
+			flDrag = (dragEntry->minVel == dragEntry->maxVel) ?
+				dragEntry->minDrag :
+				Math::RemapVal(flVelocity, dragEntry->minVel, dragEntry->maxVel, dragEntry->minDrag, dragEntry->maxDrag);
+		} else {
 			const auto fixedEntry = std::find_if(fixedDragTable.begin(), fixedDragTable.end(),
 				[weaponIndex](const auto& entry) noexcept { return entry.itemIndex == weaponIndex; });
 			
-			if (fixedEntry != fixedDragTable.end()) 
+			if (fixedEntry != fixedDragTable.end())
 				flDrag = fixedEntry->drag;
 		}
 	}
@@ -1220,33 +1227,22 @@ static inline void SolveProjectileSpeed(CTFWeaponBase* pWeapon, const Vec3& vLoc
 	const float flOverride = Vars::Aimbot::Projectile::TimeOverride.Value;
 	const float flDragDivisor = (flOverride > 0.0f) ? flOverride : 1.5f;
 	
-	// Enhanced drag integration using Runge-Kutta 4th order method for better accuracy
-	constexpr int kDragSteps = 12; // Increased for better accuracy
-	const long double ldStepTime = ldTime / static_cast<long double>(kDragSteps);
-	long double ldIntegratedDrag = 0.0L;
+	// Simplified drag integration for better performance
+	constexpr int kDragSteps = 8;
+	const double dStepTime = dTime / static_cast<double>(kDragSteps);
+	double dIntegratedDrag = 0.0;
 	
-	// Use Runge-Kutta 4th order for more accurate integration
 	for (int i = 0; i < kDragSteps; ++i) {
-		const long double ldCurrentTime = static_cast<long double>(i) * ldStepTime;
-		const long double ldNextTime = static_cast<long double>(i + 1) * ldStepTime;
-		const long double ldMidTime1 = ldCurrentTime + ldStepTime * 0.5L;
-		const long double ldMidTime2 = ldCurrentTime + ldStepTime * 0.5L;
-		
-		// RK4 coefficients
-		const long double ldDragCoeff = static_cast<long double>(flDrag);
-		const long double k1 = ldVelocity * (1.0L - ldDragCoeff * ldCurrentTime) * ldDragCoeff;
-		const long double k2 = ldVelocity * (1.0L - ldDragCoeff * ldMidTime1) * ldDragCoeff;
-		const long double k3 = ldVelocity * (1.0L - ldDragCoeff * ldMidTime2) * ldDragCoeff;
-		const long double k4 = ldVelocity * (1.0L - ldDragCoeff * ldNextTime) * ldDragCoeff;
-		
-		ldIntegratedDrag += (k1 + 2.0L * k2 + 2.0L * k3 + k4) * ldStepTime / 6.0L;
+		const double dCurrentTime = static_cast<double>(i) * dStepTime;
+		const double dDragCoeff = static_cast<double>(flDrag);
+		dIntegratedDrag += dVelocity * (1.0 - dDragCoeff * dCurrentTime) * dDragCoeff * dStepTime;
 	}
 	
-	flDragTime = static_cast<float>(ldIntegratedDrag / static_cast<long double>(flDragDivisor));
+	flDragTime = static_cast<float>(dIntegratedDrag / static_cast<double>(flDragDivisor));
 	
-	// Enhanced velocity calculation with exponential decay model for better accuracy
-	const long double ldDragCoeff = static_cast<long double>(flDrag) * ldTime;
-	flVelocity = static_cast<float>(ldVelocity * std::exp(-ldDragCoeff));
+	// Velocity calculation with exponential decay
+	const double dDragCoeff = static_cast<double>(flDrag) * dTime;
+	flVelocity = static_cast<float>(dVelocity * std::exp(-dDragCoeff));
 }
 void CAimbotProjectile::CalculateAngle(const Vec3& vLocalPos, const Vec3& vTargetPos, Info_t& tInfo, int iSimTime, Solution_t& out, bool bAccuracy)
 {

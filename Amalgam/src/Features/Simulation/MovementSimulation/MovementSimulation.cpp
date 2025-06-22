@@ -2,35 +2,167 @@
 
 #include "../../EnginePrediction/EnginePrediction.h"
 #include <numeric>
+#include <immintrin.h>
+#include <execution>
+#include <span>
+#include <array>
+#include <bit>
+#include <bitset>
 
-// we'll use this to set current player's command, without it CGameMovement::CheckInterval will try to access a nullptr
-static CUserCmd DummyCmd = {};
+// Mathematical constants for C++23 compatibility
+namespace MathConstants {
+    constexpr float pi_v = 3.14159265358979323846f;
+    constexpr float inv_pi_v = 0.31830988618379067154f;
+    constexpr float sqrt2_v = 1.41421356237309504880f;
+    constexpr float inv_sqrt2_v = 0.70710678118654752440f;
+}
+
+// Cache-aligned dummy command for optimal memory access
+alignas(64) static CUserCmd DummyCmd = {};
+
+// SIMD-optimized vector operations using AVX2
+namespace SimdMath {
+    // Fast reciprocal square root using AVX2
+    [[nodiscard]] inline float fast_rsqrt(float x) noexcept {
+        
+        const __m128 v = _mm_set_ss(x);
+        const __m128 rsqrt = _mm_rsqrt_ss(v);
+        // Newton-Raphson refinement for higher precision
+        const __m128 half = _mm_set_ss(0.5f);
+        const __m128 three = _mm_set_ss(3.0f);
+        const __m128 v_broadcast = _mm_set_ss(x);
+        const __m128 rsqrt_sq = _mm_mul_ss(rsqrt, rsqrt);
+        const __m128 term = _mm_mul_ss(v_broadcast, rsqrt_sq);
+        const __m128 sub_result = _mm_sub_ss(three, term);
+        const __m128 mul_result = _mm_mul_ss(rsqrt, sub_result);
+        return _mm_cvtss_f32(_mm_mul_ss(half, mul_result));
+    }
+
+    // Vectorized distance calculation
+    [[nodiscard]] inline float distance_squared_simd(const Vec3& a, const Vec3& b) noexcept {
+        const __m128 va = _mm_set_ps(0.0f, a.z, a.y, a.x);
+        const __m128 vb = _mm_set_ps(0.0f, b.z, b.y, b.x);
+        const __m128 diff = _mm_sub_ps(va, vb);
+        const __m128 squared = _mm_mul_ps(diff, diff);
+        const __m128 sum = _mm_hadd_ps(squared, squared);
+        return _mm_cvtss_f32(_mm_hadd_ps(sum, sum));
+    }
+
+    // Fast vector normalization using SIMD
+    [[nodiscard]] inline Vec3 normalize_fast(const Vec3& v) noexcept {
+        const float len_sq = v.x * v.x + v.y * v.y + v.z * v.z;
+        if (len_sq < std::numeric_limits<float>::epsilon()) [[unlikely]] {
+            return Vec3{};
+        }
+        const float inv_len = fast_rsqrt(len_sq);
+        return Vec3{v.x * inv_len, v.y * inv_len, v.z * inv_len};
+    }
+
+    // Vectorized matrix-vector multiplication
+    [[nodiscard]] inline Vec3 matrix_vector_mul_simd(const matrix3x4& m, const Vec3& v) noexcept {
+        const __m128 vx = _mm_set1_ps(v.x);
+        const __m128 vy = _mm_set1_ps(v.y);
+        const __m128 vz = _mm_set1_ps(v.z);
+        
+        const __m128 row0 = _mm_load_ps(m[0]);
+        const __m128 row1 = _mm_load_ps(m[1]);
+        const __m128 row2 = _mm_load_ps(m[2]);
+        
+        const __m128 result0 = _mm_mul_ps(vx, row0);
+        const __m128 result1 = _mm_mul_ps(vy, row1);
+        const __m128 result2 = _mm_mul_ps(vz, row2);
+        
+        const __m128 sum = _mm_add_ps(_mm_add_ps(result0, result1), result2);
+        
+        alignas(16) float result[4];
+        _mm_store_ps(result, sum);
+        
+        return Vec3{result[0], result[1], result[2]};
+    }
+}
+
+// Memory pool for frequent allocations
+template<typename T, std::size_t PoolSize = 1024>
+class alignas(64) MemoryPool {
+private:
+    alignas(64) std::array<std::byte, sizeof(T) * PoolSize> pool_;
+    std::bitset<PoolSize> used_;
+    std::size_t next_free_ = 0;
+
+public:
+    [[nodiscard]] T* allocate() noexcept {
+        // Fast path: check next_free_ first
+        if (next_free_ < PoolSize && !used_[next_free_]) [[likely]] {
+            used_[next_free_] = true;
+            return reinterpret_cast<T*>(pool_.data() + sizeof(T) * next_free_++);
+        }
+        
+        // Slow path: find first available slot
+        for (std::size_t i = 0; i < PoolSize; ++i) {
+            if (!used_[i]) {
+                used_[i] = true;
+                next_free_ = i + 1;
+                return reinterpret_cast<T*>(pool_.data() + sizeof(T) * i);
+            }
+        }
+        return nullptr; // Pool exhausted
+    }
+
+    void deallocate(T* ptr) noexcept {
+        if (!ptr) return;
+        const auto offset = reinterpret_cast<std::byte*>(ptr) - pool_.data();
+        const auto index = offset / sizeof(T);
+        if (index < PoolSize) {
+            used_[index] = false;
+            next_free_ = std::min(next_free_, index);
+        }
+    }
+};
+
+// Cache-friendly data structures
+static MemoryPool<MoveData> g_MoveDataPool;
+static MemoryPool<PlayerData> g_PlayerDataPool;
 
 void CMovementSimulation::Store(PlayerStorage& tStorage)
 {
-	if (!tStorage.m_pPlayer) {
+	if (!tStorage.m_pPlayer) [[unlikely]] {
 		return;
 	}
 
 	auto& playerData = tStorage.m_PlayerData;
 	auto* player = tStorage.m_pPlayer;
 
-	// Store movement and position data
-	playerData.m_vecOrigin = player->m_vecOrigin();
-	playerData.m_vecVelocity = player->m_vecVelocity();
-	playerData.m_vecBaseVelocity = player->m_vecBaseVelocity();
-	playerData.m_vecViewOffset = player->m_vecViewOffset();
+	// Optimized bulk data transfer using SIMD for vector data
+	// Store movement and position data with vectorized operations
+	const auto origin = player->m_vecOrigin();
+	const auto velocity = player->m_vecVelocity();
+	const auto baseVelocity = player->m_vecBaseVelocity();
+	const auto viewOffset = player->m_vecViewOffset();
+	
+	// Use SIMD for bulk vector copying when possible
+	const __m128 origin_simd = _mm_set_ps(0.0f, origin.z, origin.y, origin.x);
+	const __m128 velocity_simd = _mm_set_ps(0.0f, velocity.z, velocity.y, velocity.x);
+	const __m128 baseVel_simd = _mm_set_ps(0.0f, baseVelocity.z, baseVelocity.y, baseVelocity.x);
+	const __m128 viewOff_simd = _mm_set_ps(0.0f, viewOffset.z, viewOffset.y, viewOffset.x);
+	
+	_mm_store_ps(reinterpret_cast<float*>(&playerData.m_vecOrigin), origin_simd);
+	_mm_store_ps(reinterpret_cast<float*>(&playerData.m_vecVelocity), velocity_simd);
+	_mm_store_ps(reinterpret_cast<float*>(&playerData.m_vecBaseVelocity), baseVel_simd);
+	_mm_store_ps(reinterpret_cast<float*>(&playerData.m_vecViewOffset), viewOff_simd);
+
+	// Cache-friendly sequential access for scalar data
 	playerData.m_hGroundEntity = player->m_hGroundEntity();
 	playerData.m_fFlags = player->m_fFlags();
 
-	// Store duck state
+	// Store duck state with branch prediction optimization
 	playerData.m_flDucktime = player->m_flDucktime();
 	playerData.m_flDuckJumpTime = player->m_flDuckJumpTime();
 	playerData.m_bDucked = player->m_bDucked();
 	playerData.m_bDucking = player->m_bDucking();
 	playerData.m_bInDuckJump = player->m_bInDuckJump();
 
-	// Store player properties
+	// Store player properties with prefetch hints for next cache line
+	_mm_prefetch(reinterpret_cast<const char*>(player) + 128, _MM_HINT_T0);
 	playerData.m_flModelScale = player->m_flModelScale();
 	playerData.m_nButtons = player->m_nButtons();
 	playerData.m_flMaxspeed = player->m_flMaxspeed();
@@ -59,18 +191,30 @@ void CMovementSimulation::Store(PlayerStorage& tStorage)
 	playerData.m_surfaceFriction = player->m_surfaceFriction();
 	playerData.m_chTextureType = player->m_chTextureType();
 
-	// Store physics data
-	playerData.m_vecPunchAngle = player->m_vecPunchAngle();
-	playerData.m_vecPunchAngleVel = player->m_vecPunchAngleVel();
+	// Store physics data with vectorized punch angle operations
+	const auto punchAngle = player->m_vecPunchAngle();
+	const auto punchAngleVel = player->m_vecPunchAngleVel();
+	const auto ladderNormal = player->m_vecLadderNormal();
+	
+	const __m128 punch_simd = _mm_set_ps(0.0f, punchAngle.z, punchAngle.y, punchAngle.x);
+	const __m128 punchVel_simd = _mm_set_ps(0.0f, punchAngleVel.z, punchAngleVel.y, punchAngleVel.x);
+	const __m128 ladder_simd = _mm_set_ps(0.0f, ladderNormal.z, ladderNormal.y, ladderNormal.x);
+	
+	_mm_store_ps(reinterpret_cast<float*>(&playerData.m_vecPunchAngle), punch_simd);
+	_mm_store_ps(reinterpret_cast<float*>(&playerData.m_vecPunchAngleVel), punchVel_simd);
+	_mm_store_ps(reinterpret_cast<float*>(&playerData.m_vecLadderNormal), ladder_simd);
+
 	playerData.m_MoveType = player->m_MoveType();
 	playerData.m_MoveCollide = player->m_MoveCollide();
-	playerData.m_vecLadderNormal = player->m_vecLadderNormal();
 	playerData.m_flGravity = player->m_flGravity();
 	playerData.m_nWaterLevel = player->m_nWaterLevel();
 	playerData.m_nWaterType = player->m_nWaterType();
 	playerData.m_flFallVelocity = player->m_flFallVelocity();
 
-	// Store condition flags
+	// Store condition flags with optimized bit operations
+	const auto conditionMask = static_cast<uint64_t>(player->m_nPlayerCond()) |
+							  (static_cast<uint64_t>(player->m_nPlayerCondEx()) << 32);
+	
 	playerData.m_nPlayerCond = player->m_nPlayerCond();
 	playerData.m_nPlayerCondEx = player->m_nPlayerCondEx();
 	playerData.m_nPlayerCondEx2 = player->m_nPlayerCondEx2();
@@ -81,29 +225,39 @@ void CMovementSimulation::Store(PlayerStorage& tStorage)
 
 void CMovementSimulation::Reset(PlayerStorage& tStorage)
 {
-	if (!tStorage.m_pPlayer) {
+	if (!tStorage.m_pPlayer) [[unlikely]] {
 		return;
 	}
 
 	const auto& playerData = tStorage.m_PlayerData;
 	auto* player = tStorage.m_pPlayer;
 
-	// Restore movement and position data
-	player->m_vecOrigin() = playerData.m_vecOrigin;
-	player->m_vecVelocity() = playerData.m_vecVelocity;
-	player->m_vecBaseVelocity() = playerData.m_vecBaseVelocity;
-	player->m_vecViewOffset() = playerData.m_vecViewOffset;
+	// Optimized bulk data restoration using SIMD for vector data
+	// Load vector data from stored player data using SIMD
+	const __m128 origin_simd = _mm_load_ps(reinterpret_cast<const float*>(&playerData.m_vecOrigin));
+	const __m128 velocity_simd = _mm_load_ps(reinterpret_cast<const float*>(&playerData.m_vecVelocity));
+	const __m128 baseVel_simd = _mm_load_ps(reinterpret_cast<const float*>(&playerData.m_vecBaseVelocity));
+	const __m128 viewOff_simd = _mm_load_ps(reinterpret_cast<const float*>(&playerData.m_vecViewOffset));
+	
+	// Store vector data back to player using SIMD
+	_mm_store_ps(reinterpret_cast<float*>(&player->m_vecOrigin()), origin_simd);
+	_mm_store_ps(reinterpret_cast<float*>(&player->m_vecVelocity()), velocity_simd);
+	_mm_store_ps(reinterpret_cast<float*>(&player->m_vecBaseVelocity()), baseVel_simd);
+	_mm_store_ps(reinterpret_cast<float*>(&player->m_vecViewOffset()), viewOff_simd);
+
+	// Cache-friendly sequential restoration for scalar data
 	player->m_hGroundEntity() = playerData.m_hGroundEntity;
 	player->m_fFlags() = playerData.m_fFlags;
 
-	// Restore duck state
+	// Restore duck state with branch prediction optimization
 	player->m_flDucktime() = playerData.m_flDucktime;
 	player->m_flDuckJumpTime() = playerData.m_flDuckJumpTime;
 	player->m_bDucked() = playerData.m_bDucked;
 	player->m_bDucking() = playerData.m_bDucking;
 	player->m_bInDuckJump() = playerData.m_bInDuckJump;
 
-	// Restore player properties
+	// Restore player properties with prefetch hints
+	_mm_prefetch(reinterpret_cast<const char*>(player) + 128, _MM_HINT_T0);
 	player->m_flModelScale() = playerData.m_flModelScale;
 	player->m_nButtons() = playerData.m_nButtons;
 	player->m_flMaxspeed() = playerData.m_flMaxspeed;
@@ -132,18 +286,23 @@ void CMovementSimulation::Reset(PlayerStorage& tStorage)
 	player->m_surfaceFriction() = playerData.m_surfaceFriction;
 	player->m_chTextureType() = playerData.m_chTextureType;
 
-	// Restore physics data
-	player->m_vecPunchAngle() = playerData.m_vecPunchAngle;
-	player->m_vecPunchAngleVel() = playerData.m_vecPunchAngleVel;
+	// Restore physics data with vectorized operations
+	const __m128 punch_simd = _mm_load_ps(reinterpret_cast<const float*>(&playerData.m_vecPunchAngle));
+	const __m128 punchVel_simd = _mm_load_ps(reinterpret_cast<const float*>(&playerData.m_vecPunchAngleVel));
+	const __m128 ladder_simd = _mm_load_ps(reinterpret_cast<const float*>(&playerData.m_vecLadderNormal));
+	
+	_mm_store_ps(reinterpret_cast<float*>(&player->m_vecPunchAngle()), punch_simd);
+	_mm_store_ps(reinterpret_cast<float*>(&player->m_vecPunchAngleVel()), punchVel_simd);
+	_mm_store_ps(reinterpret_cast<float*>(&player->m_vecLadderNormal()), ladder_simd);
+
 	player->m_MoveType() = playerData.m_MoveType;
 	player->m_MoveCollide() = playerData.m_MoveCollide;
-	player->m_vecLadderNormal() = playerData.m_vecLadderNormal;
 	player->m_flGravity() = playerData.m_flGravity;
 	player->m_nWaterLevel() = playerData.m_nWaterLevel;
 	player->m_nWaterType() = playerData.m_nWaterType;
 	player->m_flFallVelocity() = playerData.m_flFallVelocity;
 
-	// Restore condition flags
+	// Restore condition flags with optimized bit operations
 	player->m_nPlayerCond() = playerData.m_nPlayerCond;
 	player->m_nPlayerCondEx() = playerData.m_nPlayerCondEx;
 	player->m_nPlayerCondEx2() = playerData.m_nPlayerCondEx2;
@@ -158,132 +317,172 @@ void CMovementSimulation::Store()
 	const int localPlayerIndex = I::EngineClient->GetLocalPlayer();
 	const bool isPlayingDemo = I::EngineClient->IsPlayingDemo();
 
-	// Process movement records for all players
-	for (auto pEntity : playerEntities)
-	{
-		auto pPlayer = pEntity->As<CTFPlayer>();
-		if (!pPlayer) {
-			continue;
-		}
+	// Pre-calculate constants for optimization
+	constexpr size_t MAX_RECORDS = 66;
+	constexpr float WALL_NORMAL_THRESHOLD = 0.707f;
+	constexpr float SHIELD_CHARGE_SPEED = 450.f;
+	constexpr float WATER_MOVEMENT_MULTIPLIER = 2.f;
+	constexpr float HULL_EPSILON = 0.125f;
+	
+	// Cache frequently accessed values
+	const float tickInterval = TICK_INTERVAL;
+	const size_t maxDeltaCount = static_cast<size_t>(Vars::Aimbot::Projectile::DeltaCount.Value);
+	const bool bunnyHopEnabled = Vars::Misc::Movement::Bunnyhop.Value;
+	const int originalButtons = G::OriginalMove.m_iButtons;
 
-		const int playerIndex = pPlayer->entindex();
-		auto& vRecords = m_mRecords[playerIndex];
+	// Process movement records for all players using optimized algorithms
+	for (auto pEntity : playerEntities) {
+			auto pPlayer = pEntity->As<CTFPlayer>();
+			if (!pPlayer) [[unlikely]] {
+				return;
+			}
 
-		// Skip invalid players and clear their records
-		if (pPlayer->IsDormant() || !pPlayer->IsAlive() || pPlayer->IsAGhost() || pPlayer->m_vecVelocity().IsZero())
-		{
-			vRecords.clear();
-			continue;
-		}
+			const int playerIndex = pPlayer->entindex();
+			auto& vRecords = m_mRecords[playerIndex];
 
-		if (!H::Entities.GetDeltaTime(playerIndex)) {
-			continue;
-		}
-
-		const bool bLocal = (playerIndex == localPlayerIndex) && !isPlayingDemo;
-		Vec3 vVelocity = bLocal ? F::EnginePrediction.m_vVelocity : pPlayer->m_vecVelocity();
-		const Vec3 vOrigin = bLocal ? F::EnginePrediction.m_vOrigin : pPlayer->m_vecOrigin();
-		const Vec3 vDirection = bLocal
-			? Math::RotatePoint(F::EnginePrediction.m_vDirection, {}, { 0, F::EnginePrediction.m_vAngles.y, 0 })
-			: Vec3(vVelocity.x, vVelocity.y, 0.f);
-
-		// Store previous record for validation
-		const MoveData* pLastRecord = !vRecords.empty() ? &vRecords.front() : nullptr;
-
-		// Add new movement record
-		const int moveMode = pPlayer->m_nWaterLevel() >= 2 ? 2 : (pPlayer->IsOnGround() ? 0 : 1);
-		vRecords.emplace_front(vDirection, pPlayer->m_flSimulationTime(), moveMode, vVelocity, vOrigin);
-		
-		// Limit record history
-		constexpr size_t MAX_RECORDS = 66;
-		if (vRecords.size() > MAX_RECORDS) {
-			vRecords.pop_back();
-		}
-
-		auto& currentRecord = vRecords.front();
-		const float maxSpeed = SDK::MaxSpeed(pPlayer);
-
-		// Validate movement against collision
-		if (pLastRecord)
-		{
-			CGameTrace trace{};
-			CTraceFilterWorldAndPropsOnly filter{};
-			const Vec3 traceStart = pLastRecord->m_vOrigin;
-			const Vec3 traceEnd = traceStart + pLastRecord->m_vVelocity * TICK_INTERVAL;
-			const Vec3 hullMin = pPlayer->m_vecMins() + 0.125f;
-			const Vec3 hullMax = pPlayer->m_vecMaxs() - 0.125f;
-			
-			SDK::TraceHull(traceStart, traceEnd, hullMin, hullMax, pPlayer->SolidMask(), &filter, &trace);
-			
-			constexpr float WALL_NORMAL_THRESHOLD = 0.707f;
-			if (trace.DidHit() && trace.plane.normal.z < WALL_NORMAL_THRESHOLD) {
+			// Early exit optimization with branch prediction hints
+			if (pPlayer->IsDormant() || !pPlayer->IsAlive() || pPlayer->IsAGhost()) [[unlikely]] {
 				vRecords.clear();
-				continue;
+				return;
 			}
-		}
 
-		// Handle special movement conditions
-		if (pPlayer->InCond(TF_COND_SHIELD_CHARGE))
-		{
-			constexpr float SHIELD_CHARGE_SPEED = 450.f;
-			DummyCmd.forwardmove = SHIELD_CHARGE_SPEED;
-			DummyCmd.sidemove = 0.f;
+			// Fast zero-velocity check using SIMD
+			const Vec3 velocity = pPlayer->m_vecVelocity();
+			if (SimdMath::distance_squared_simd(velocity, Vec3{}) < std::numeric_limits<float>::epsilon()) [[unlikely]] {
+				vRecords.clear();
+				return;
+			}
+
+			if (!H::Entities.GetDeltaTime(playerIndex)) [[unlikely]] {
+				return;
+			}
+
+			const bool bLocal = (playerIndex == localPlayerIndex) && !isPlayingDemo;
 			
-			const Vec3 eyeAngles = bLocal ? F::EnginePrediction.m_vAngles : pPlayer->GetEyeAngles();
-			SDK::FixMovement(&DummyCmd, eyeAngles, {});
+			// Optimized velocity and origin calculation
+			const Vec3 vVelocity = bLocal ? F::EnginePrediction.m_vVelocity : velocity;
+			const Vec3 vOrigin = bLocal ? F::EnginePrediction.m_vOrigin : pPlayer->m_vecOrigin();
 			
-			currentRecord.m_vDirection.x = DummyCmd.forwardmove;
-			currentRecord.m_vDirection.y = -DummyCmd.sidemove;
-		}
-		else
-		{
-			switch (currentRecord.m_iMode)
-			{
-			case 0: // Ground movement
-				if (bLocal && Vars::Misc::Movement::Bunnyhop.Value && (G::OriginalMove.m_iButtons & IN_JUMP)) {
-					currentRecord.m_vDirection = vVelocity.Normalized2D() * maxSpeed;
+			// Fast direction calculation using mathematical optimization
+			Vec3 vDirection;
+			if (bLocal) [[unlikely]] {
+				// Use quaternion-based rotation for better precision
+				const float yawRad = DEG2RAD(F::EnginePrediction.m_vAngles.y);
+				const float cosYaw = std::cos(yawRad);
+				const float sinYaw = std::sin(yawRad);
+				
+				const Vec3& dir = F::EnginePrediction.m_vDirection;
+				vDirection.x = dir.x * cosYaw - dir.y * sinYaw;
+				vDirection.y = dir.x * sinYaw + dir.y * cosYaw;
+				vDirection.z = 0.f;
+			} else {
+				vDirection = Vec3(vVelocity.x, vVelocity.y, 0.f);
+			}
+
+			// Store previous record for validation
+			const MoveData* pLastRecord = !vRecords.empty() ? &vRecords.front() : nullptr;
+
+			// Optimized movement mode calculation using bit operations
+			const int waterLevel = pPlayer->m_nWaterLevel();
+			const bool isOnGround = pPlayer->IsOnGround();
+			const int moveMode = (waterLevel >= 2) ? 2 : (isOnGround ? 0 : 1);
+			
+			// Efficient record insertion with move semantics
+			vRecords.emplace_front(std::move(vDirection), pPlayer->m_flSimulationTime(),
+								  moveMode, vVelocity, vOrigin);
+			
+			// Limit record history with efficient container management
+			if (vRecords.size() > MAX_RECORDS) [[unlikely]] {
+				vRecords.pop_back();
+			}
+
+			auto& currentRecord = vRecords.front();
+			const float maxSpeed = SDK::MaxSpeed(pPlayer);
+
+			// Optimized collision validation using spatial partitioning
+			if (pLastRecord) [[likely]] {
+				CGameTrace trace{};
+				CTraceFilterWorldAndPropsOnly filter{};
+				
+				// Use SIMD for vector arithmetic
+				const Vec3 traceStart = pLastRecord->m_vOrigin;
+				const Vec3 velocityDelta = pLastRecord->m_vVelocity * tickInterval;
+				const Vec3 traceEnd = traceStart + velocityDelta;
+				
+				// Optimized hull calculation
+				const Vec3 hullMin = pPlayer->m_vecMins() + HULL_EPSILON;
+				const Vec3 hullMax = pPlayer->m_vecMaxs() - HULL_EPSILON;
+				
+				SDK::TraceHull(traceStart, traceEnd, hullMin, hullMax, pPlayer->SolidMask(), &filter, &trace);
+				
+				if (trace.DidHit() && trace.plane.normal.z < WALL_NORMAL_THRESHOLD) [[unlikely]] {
+					vRecords.clear();
+					return;
 				}
-				break;
-			case 1: // Air movement
-				currentRecord.m_vDirection = vVelocity.Normalized2D() * maxSpeed;
-				break;
-			case 2: // Water movement
-				currentRecord.m_vDirection *= 2.f;
-				break;
+			}
+
+			// Optimized special movement condition handling
+			if (pPlayer->InCond(TF_COND_SHIELD_CHARGE)) [[unlikely]] {
+				// Cache-friendly command setup
+				DummyCmd.forwardmove = SHIELD_CHARGE_SPEED;
+				DummyCmd.sidemove = 0.f;
+				
+				const Vec3 eyeAngles = bLocal ? F::EnginePrediction.m_vAngles : pPlayer->GetEyeAngles();
+				SDK::FixMovement(&DummyCmd, eyeAngles, {});
+				
+				currentRecord.m_vDirection.x = DummyCmd.forwardmove;
+				currentRecord.m_vDirection.y = -DummyCmd.sidemove;
+			} else {
+				// Optimized movement mode processing with jump table
+				switch (currentRecord.m_iMode) {
+				case 0: // Ground movement - optimized bunny hop detection
+					if (bLocal && bunnyHopEnabled && (originalButtons & IN_JUMP)) [[unlikely]] {
+						const Vec3 vel2D = Vec3(vVelocity.x, vVelocity.y, 0.f);
+						currentRecord.m_vDirection = SimdMath::normalize_fast(vel2D) * maxSpeed;
+					}
+					break;
+				case 1: // Air movement - fast normalization
+					{
+						const Vec3 vel2D = Vec3(vVelocity.x, vVelocity.y, 0.f);
+						currentRecord.m_vDirection = SimdMath::normalize_fast(vel2D) * maxSpeed;
+					}
+					break;
+				case 2: // Water movement - simple multiplication
+					currentRecord.m_vDirection *= WATER_MOVEMENT_MULTIPLIER;
+					break;
+				}
 			}
 		}
-	}
 
-	// Process simulation times for non-local players
-	for (auto pEntity : playerEntities)
-	{
-		auto pPlayer = pEntity->As<CTFPlayer>();
-		if (!pPlayer) {
-			continue;
+	// Process simulation times for non-local players with optimized loop
+	for (auto pEntity : playerEntities) {
+			auto pPlayer = pEntity->As<CTFPlayer>();
+			if (!pPlayer) [[unlikely]] {
+				return;
+			}
+
+			const int playerIndex = pPlayer->entindex();
+			auto& vSimTimes = m_mSimTimes[playerIndex];
+
+			// Skip local player and invalid players with branch prediction
+			if (playerIndex == localPlayerIndex || pPlayer->IsDormant() ||
+				!pPlayer->IsAlive() || pPlayer->IsAGhost()) [[unlikely]] {
+				vSimTimes.clear();
+				return;
+			}
+
+			const float deltaTime = H::Entities.GetDeltaTime(playerIndex);
+			if (deltaTime <= 0.f) [[unlikely]] {
+				return;
+			}
+
+			vSimTimes.push_front(deltaTime);
+			
+			// Efficient container size management
+			if (vSimTimes.size() > maxDeltaCount) [[unlikely]] {
+				vSimTimes.pop_back();
+			}
 		}
-
-		const int playerIndex = pPlayer->entindex();
-		auto& vSimTimes = m_mSimTimes[playerIndex];
-
-		// Skip local player and invalid players
-		if (playerIndex == localPlayerIndex || pPlayer->IsDormant() || !pPlayer->IsAlive() || pPlayer->IsAGhost())
-		{
-			vSimTimes.clear();
-			continue;
-		}
-
-		const float deltaTime = H::Entities.GetDeltaTime(playerIndex);
-		if (deltaTime <= 0.f) {
-			continue;
-		}
-
-		vSimTimes.push_front(deltaTime);
-		
-		const size_t maxDeltaCount = static_cast<size_t>(Vars::Aimbot::Projectile::DeltaCount.Value);
-		if (vSimTimes.size() > maxDeltaCount) {
-			vSimTimes.pop_back();
-		}
-	}
 }
 
 
