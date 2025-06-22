@@ -40,7 +40,16 @@ Only link:https://github.com/DarthTon/Xenos/releases[Xenos] and "protecting" bot
 - Editor or IDE: Visual Studio Code. Visual Studio is used exclusively for PVS-Studio and adding or removing files.
 - Default prompt:
 ----
-You must cache read every .cpp and .h file in bulk for the current codebase. Use context7 mcp to lookup the following: /microsoftdocs/cpp-docs, /isocpp/cppcoreguidelines, and /valvesoftware/source-sdk-2013. The codebase language standard is C++23. Never check if C++ language features are compatible, always use the newest C++ language features if it's more performant. Only add documentation if it helps in reading the code. Do not create new files. Apply the changes in small chunks at a time. Aggressively introduce mathematical theories including numerical analysis, computational geometry, linear algebra optimizations, differential equations solvers, quaternion mathematics, vector field theory, physics simulation algorithms, spatial partitioning techniques, interpolation methods, optimization algorithms, statistical methods, signal processing techniques, and any other mathematical frameworks that would enhance the pre-existing code and implement comprehensive performance improvements including SIMD vectorization, cache-friendly data structures, memory pool allocation, branch prediction optimization, loop unrolling, template metaprogramming, constexpr evaluation, move semantics, perfect forwarding, and modern C++23 features. Do not override the old comments or documentation. Never create dummy or placeholder code.
+You must cache read every .cpp and .h file in bulk for the current codebase.
+Use context7 mcp to lookup the following: /microsoftdocs/cpp-docs, /isocpp/cppcoreguidelines, and /valvesoftware/source-sdk-2013. The codebase language standard is C++23.
+Always use the newest C++ language features if it's more performant.
+Only add documentation if it helps in reading the code.
+Do not create new files.
+Apply the changes in small chunks at a time.
+Aggressively introduce mathematical theories including numerical analysis, computational geometry, linear algebra optimizations, differential equations solvers, quaternion mathematics, vector field theory, physics simulation algorithms, spatial partitioning techniques, interpolation methods, optimization algorithms, statistical methods, signal processing techniques, and any other mathematical frameworks that would enhance the pre-existing code and implement comprehensive performance improvements including SIMD vectorization, cache-friendly data structures, memory pool allocation, branch prediction optimization, loop unrolling, template metaprogramming, constexpr evaluation, move semantics, perfect forwarding, and modern C++23 features.
+Do not override the old comments or documentation.
+Never create dummy or placeholder code.
+Never check for errors or mistakes until after the build command is ran.
 
 The build command for testing if changes were successful is: .\Build.ps1 -ProjectPath "Amalgam.sln" -Configuration "ReleaseFreetypeAVX2" -Platform "x64".
 
