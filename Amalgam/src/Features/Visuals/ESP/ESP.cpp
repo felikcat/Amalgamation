@@ -11,6 +11,14 @@ MAKE_SIGNATURE(CEconItemView_GetItemName, "client.dll", "40 53 48 83 EC ? 48 8B 
 
 void CESP::Store(CTFPlayer* pLocal)
 {
+	// Clear caches efficiently - reuse existing allocations
+	for (auto& [entity, cache] : m_mPlayerCache)
+		cache.ClearText();
+	for (auto& [entity, cache] : m_mBuildingCache)
+		cache.ClearText();
+	for (auto& [entity, cache] : m_mWorldCache)
+		cache.ClearText();
+	
 	m_mPlayerCache.clear();
 	m_mBuildingCache.clear();
 	m_mWorldCache.clear();
@@ -30,30 +38,30 @@ void CESP::StorePlayers(CTFPlayer* pLocal)
 	if (!(Vars::ESP::Draw.Value & Vars::ESP::DrawEnum::Players) || !Vars::ESP::Player.Value)
 		return;
 
-	auto pObserverTarget = pLocal->m_hObserverTarget().Get();
-	int iObserverMode = pLocal->m_iObserverMode();
-	if (F::Spectate.m_iTarget != -1)
-	{
-		pObserverTarget = F::Spectate.m_pTargetTarget;
-		iObserverMode = F::Spectate.m_iTargetMode;
-	}
+	const auto pObserverTarget = pLocal->m_hObserverTarget().Get();
+	const int iObserverMode = pLocal->m_iObserverMode();
+	const auto pActualObserverTarget = F::Spectate.m_iTarget != -1 ? F::Spectate.m_pTargetTarget : pObserverTarget;
+	const int iActualObserverMode = F::Spectate.m_iTarget != -1 ? F::Spectate.m_iTargetMode : iObserverMode;
 
-	auto pResource = H::Entities.GetPR();
+	const auto pResource = H::Entities.GetPR();
+	const int iLocalIndex = I::EngineClient->GetLocalPlayer();
+	const bool bSpectate = iActualObserverMode == OBS_MODE_FIRSTPERSON || iActualObserverMode == OBS_MODE_THIRDPERSON;
+	
 	for (auto pEntity : H::Entities.GetGroup(EGroupType::PLAYERS_ALL))
 	{
 		auto pPlayer = pEntity->As<CTFPlayer>();
-		int iIndex = pPlayer->entindex();
+		const int iIndex = pPlayer->entindex();
 
-		bool bLocal = iIndex == I::EngineClient->GetLocalPlayer();
-		bool bSpectate = iObserverMode == OBS_MODE_FIRSTPERSON || iObserverMode == OBS_MODE_THIRDPERSON;
-		bool bTarget = bSpectate && pObserverTarget == pPlayer;
-
+		// Early exit for dead/ghost players
 		if (!pPlayer->IsAlive() || pPlayer->IsAGhost())
 			continue;
 
+		const bool bLocal = iIndex == iLocalIndex;
+		const bool bTarget = bSpectate && pActualObserverTarget == pPlayer;
+
 		if (bLocal || bTarget)
 		{
-			if (!(Vars::ESP::Player.Value & Vars::ESP::PlayerEnum::Local) || (!bSpectate ? !I::Input->CAM_IsThirdPerson() && bLocal : iObserverMode == OBS_MODE_FIRSTPERSON && bTarget))
+			if (!(Vars::ESP::Player.Value & Vars::ESP::PlayerEnum::Local) || (!bSpectate ? !I::Input->CAM_IsThirdPerson() && bLocal : iActualObserverMode == OBS_MODE_FIRSTPERSON && bTarget))
 				continue;
 		}
 		else
@@ -61,21 +69,24 @@ void CESP::StorePlayers(CTFPlayer* pLocal)
 			if (pPlayer->IsDormant())
 			{
 				if (!H::Entities.GetDormancy(iIndex) || !Vars::ESP::DormantAlpha.Value
-					|| Vars::ESP::DormantPriority.Value && !F::PlayerUtils.IsPrioritized(iIndex))
+					|| (Vars::ESP::DormantPriority.Value && !F::PlayerUtils.IsPrioritized(iIndex)))
 					continue;
 			}
 
+			// Optimize team/friend checks with early exit
+			const bool bIsEnemy = pPlayer->m_iTeamNum() != pLocal->m_iTeamNum();
 			if (!(Vars::ESP::Player.Value & Vars::ESP::PlayerEnum::Prioritized && F::PlayerUtils.IsPrioritized(iIndex))
 				&& !(Vars::ESP::Player.Value & Vars::ESP::PlayerEnum::Friends && H::Entities.IsFriend(iIndex))
 				&& !(Vars::ESP::Player.Value & Vars::ESP::PlayerEnum::Party && H::Entities.InParty(iIndex))
-				&& !(pPlayer->m_iTeamNum() != pLocal->m_iTeamNum() ? Vars::ESP::Player.Value & Vars::ESP::PlayerEnum::Enemy : Vars::ESP::Player.Value & Vars::ESP::PlayerEnum::Team))
+				&& !(bIsEnemy ? Vars::ESP::Player.Value & Vars::ESP::PlayerEnum::Enemy : Vars::ESP::Player.Value & Vars::ESP::PlayerEnum::Team))
 				continue;
 		}
 
-		int iClassNum = pPlayer->m_iClass();
+		const int iClassNum = pPlayer->m_iClass();
 		auto pWeapon = pPlayer->m_hActiveWeapon().Get()->As<CTFWeaponBase>();
 
 		PlayerCache& tCache = m_mPlayerCache[pEntity];
+		tCache.ReserveText(); // Reserve space to avoid reallocations
 		tCache.m_flAlpha = (pPlayer->IsDormant() ? Vars::ESP::DormantAlpha.Value : Vars::ESP::ActiveAlpha.Value) / 255.f;
 		tCache.m_tColor = GetColor(pLocal, pPlayer);
 		tCache.m_bBox = Vars::ESP::Player.Value & Vars::ESP::PlayerEnum::Box;
@@ -491,34 +502,43 @@ void CESP::StoreBuildings(CTFPlayer* pLocal)
 	if (!(Vars::ESP::Draw.Value & Vars::ESP::DrawEnum::Buildings) || !Vars::ESP::Building.Value)
 		return;
 
+	const int iLocalIndex = I::EngineClient->GetLocalPlayer();
+
 	for (auto pEntity : H::Entities.GetGroup(EGroupType::BUILDINGS_ALL))
 	{
 		auto pBuilding = pEntity->As<CBaseObject>();
 		auto pOwner = pBuilding->m_hBuilder().Get();
-		int iIndex = pOwner ? pOwner->entindex() : -1;
+		const int iIndex = pOwner ? pOwner->entindex() : -1;
 
 		if (pOwner)
 		{
-			if (iIndex == I::EngineClient->GetLocalPlayer())
+			if (iIndex == iLocalIndex)
 			{
 				if (!(Vars::ESP::Building.Value & Vars::ESP::BuildingEnum::Local))
 					continue;
 			}
 			else
 			{
+				// Optimize team check with early exit
+				const bool bIsEnemy = pOwner->m_iTeamNum() != pLocal->m_iTeamNum();
 				if (!(Vars::ESP::Building.Value & Vars::ESP::BuildingEnum::Prioritized && F::PlayerUtils.IsPrioritized(iIndex))
 					&& !(Vars::ESP::Building.Value & Vars::ESP::BuildingEnum::Friends && H::Entities.IsFriend(iIndex))
 					&& !(Vars::ESP::Building.Value & Vars::ESP::BuildingEnum::Party && H::Entities.InParty(iIndex))
-					&& !(pOwner->m_iTeamNum() != pLocal->m_iTeamNum() ? Vars::ESP::Building.Value & Vars::ESP::BuildingEnum::Enemy : Vars::ESP::Building.Value & Vars::ESP::BuildingEnum::Team))
+					&& !(bIsEnemy ? Vars::ESP::Building.Value & Vars::ESP::BuildingEnum::Enemy : Vars::ESP::Building.Value & Vars::ESP::BuildingEnum::Team))
 					continue;
 			}
 		}
-		else if (!(pEntity->m_iTeamNum() != pLocal->m_iTeamNum() ? Vars::ESP::Building.Value & Vars::ESP::BuildingEnum::Enemy : Vars::ESP::Building.Value & Vars::ESP::BuildingEnum::Team))
-			continue;
+		else
+		{
+			const bool bIsEnemy = pEntity->m_iTeamNum() != pLocal->m_iTeamNum();
+			if (!(bIsEnemy ? Vars::ESP::Building.Value & Vars::ESP::BuildingEnum::Enemy : Vars::ESP::Building.Value & Vars::ESP::BuildingEnum::Team))
+				continue;
+		}
 
-		bool bIsMini = pBuilding->m_bMiniBuilding();
+		const bool bIsMini = pBuilding->m_bMiniBuilding();
 
 		BuildingCache& tCache = m_mBuildingCache[pEntity];
+		tCache.ReserveText(); // Reserve space to avoid reallocations
 		tCache.m_flAlpha = Vars::ESP::ActiveAlpha.Value / 255.f;
 		tCache.m_tColor = GetColor(pLocal, pOwner ? pOwner : pEntity);
 		tCache.m_bBox = Vars::ESP::Building.Value & Vars::ESP::BuildingEnum::Box;
@@ -588,10 +608,15 @@ void CESP::StoreProjectiles(CTFPlayer* pLocal)
 	if (!(Vars::ESP::Draw.Value & Vars::ESP::DrawEnum::Projectiles) || !Vars::ESP::Projectile.Value)
 		return;
 
+	const int iLocalIndex = I::EngineClient->GetLocalPlayer();
+
 	for (auto pEntity : H::Entities.GetGroup(EGroupType::WORLD_PROJECTILES))
 	{
 		CBaseEntity* pOwner = nullptr;
-		switch (pEntity->GetClassID())
+		const auto classID = pEntity->GetClassID();
+		
+		// Optimize owner lookup with grouped cases
+		switch (classID)
 		{
 		case ETFClassID::CBaseProjectile:
 		case ETFClassID::CBaseGrenade:
@@ -617,10 +642,8 @@ void CESP::StoreProjectiles(CTFPlayer* pLocal)
 		case ETFClassID::CTFProjectile_ThrowableBreadMonster:
 		case ETFClassID::CTFProjectile_ThrowableBrick:
 		case ETFClassID::CTFProjectile_ThrowableRepel:
-		{
 			pOwner = pEntity->As<CTFWeaponBaseGrenadeProj>()->m_hThrower().Get();
 			break;
-		}
 		case ETFClassID::CTFBaseRocket:
 		case ETFClassID::CTFFlameRocket:
 		case ETFClassID::CTFProjectile_Arrow:
@@ -636,41 +659,48 @@ void CESP::StoreProjectiles(CTFPlayer* pLocal)
 		case ETFClassID::CTFProjectile_EnergyBall:
 		case ETFClassID::CTFProjectile_Flare:
 		{
-			auto pWeapon = pEntity->As<CTFBaseRocket>()->m_hLauncher().Get();
-			pOwner = pWeapon ? pWeapon->As<CTFWeaponBase>()->m_hOwner().Get() : nullptr;
+			if (auto pWeapon = pEntity->As<CTFBaseRocket>()->m_hLauncher().Get())
+				pOwner = pWeapon->As<CTFWeaponBase>()->m_hOwner().Get();
 			break;
 		}
-		case ETFClassID::CTFBaseProjectile:
 		case ETFClassID::CTFProjectile_EnergyRing:
 		//case ETFClassID::CTFProjectile_Syringe:
 		{
-			auto pWeapon = pEntity->As<CTFBaseProjectile>()->m_hLauncher().Get();
-			pOwner = pWeapon ? pWeapon->As<CTFWeaponBase>()->m_hOwner().Get() : nullptr;
+			if (auto pWeapon = pEntity->As<CTFBaseProjectile>()->m_hLauncher().Get())
+				pOwner = pWeapon->As<CTFWeaponBase>()->m_hOwner().Get();
 			break;
 		}
 		}
-		int iIndex = pOwner ? pOwner->entindex() : -1;
+		
+		const int iIndex = pOwner ? pOwner->entindex() : -1;
 
 		if (pOwner)
 		{
-			if (iIndex == I::EngineClient->GetLocalPlayer())
+			if (iIndex == iLocalIndex)
 			{
 				if (!(Vars::ESP::Projectile.Value & Vars::ESP::ProjectileEnum::Local))
 					continue;
 			}
 			else
 			{
+				// Optimize team check with early exit
+				const bool bIsEnemy = pOwner->m_iTeamNum() != pLocal->m_iTeamNum();
 				if (!(Vars::ESP::Projectile.Value & Vars::ESP::ProjectileEnum::Prioritized && F::PlayerUtils.IsPrioritized(iIndex))
 					&& !(Vars::ESP::Projectile.Value & Vars::ESP::ProjectileEnum::Friends && H::Entities.IsFriend(iIndex))
 					&& !(Vars::ESP::Projectile.Value & Vars::ESP::ProjectileEnum::Party && H::Entities.InParty(iIndex))
-					&& !(pOwner->m_iTeamNum() != pLocal->m_iTeamNum() ? Vars::ESP::Projectile.Value & Vars::ESP::ProjectileEnum::Enemy : Vars::ESP::Projectile.Value & Vars::ESP::ProjectileEnum::Team))
+					&& !(bIsEnemy ? Vars::ESP::Projectile.Value & Vars::ESP::ProjectileEnum::Enemy : Vars::ESP::Projectile.Value & Vars::ESP::ProjectileEnum::Team))
 					continue;
 			}
 		}
-		else if (!(pEntity->m_iTeamNum() != pLocal->m_iTeamNum() ? Vars::ESP::Projectile.Value & Vars::ESP::ProjectileEnum::Enemy : Vars::ESP::Projectile.Value & Vars::ESP::ProjectileEnum::Team))
-			continue;
+		else
+		{
+			const bool bIsEnemy = pEntity->m_iTeamNum() != pLocal->m_iTeamNum();
+			if (!(bIsEnemy ? Vars::ESP::Projectile.Value & Vars::ESP::ProjectileEnum::Enemy : Vars::ESP::Projectile.Value & Vars::ESP::ProjectileEnum::Team))
+				continue;
+		}
 
 		WorldCache& tCache = m_mWorldCache[pEntity];
+		tCache.ReserveText(); // Reserve space to avoid reallocations
 		tCache.m_flAlpha = Vars::ESP::ActiveAlpha.Value / 255.f;
 		tCache.m_tColor = GetColor(pLocal, pOwner ? pOwner : pEntity);
 		tCache.m_bBox = Vars::ESP::Projectile.Value & Vars::ESP::ProjectileEnum::Box;
@@ -805,10 +835,13 @@ void CESP::StoreObjective(CTFPlayer* pLocal)
 
 	for (auto pEntity : H::Entities.GetGroup(EGroupType::WORLD_OBJECTIVE))
 	{
-		if (!(pEntity->m_iTeamNum() != pLocal->m_iTeamNum() ? Vars::ESP::Objective.Value & Vars::ESP::ObjectiveEnum::Enemy : Vars::ESP::Objective.Value & Vars::ESP::ObjectiveEnum::Team))
+		// Optimize team check with early exit
+		const bool bIsEnemy = pEntity->m_iTeamNum() != pLocal->m_iTeamNum();
+		if (!(bIsEnemy ? Vars::ESP::Objective.Value & Vars::ESP::ObjectiveEnum::Enemy : Vars::ESP::Objective.Value & Vars::ESP::ObjectiveEnum::Team))
 			continue;
 
 		WorldCache& tCache = m_mWorldCache[pEntity];
+		tCache.ReserveText(); // Reserve space to avoid reallocations
 		tCache.m_flAlpha = Vars::ESP::ActiveAlpha.Value / 255.f;
 		tCache.m_tColor = GetColor(pLocal, pEntity);
 		tCache.m_bBox = Vars::ESP::Objective.Value & Vars::ESP::ObjectiveEnum::Box;
@@ -857,11 +890,14 @@ void CESP::StoreObjective(CTFPlayer* pLocal)
 
 void CESP::StoreWorld()
 {
-	if (Vars::ESP::Draw.Value & Vars::ESP::DrawEnum::NPCs)
+	const auto drawValue = Vars::ESP::Draw.Value;
+	
+	if (drawValue & Vars::ESP::DrawEnum::NPCs)
 	{
 		for (auto pEntity : H::Entities.GetGroup(EGroupType::WORLD_NPC))
 		{
 			WorldCache& tCache = m_mWorldCache[pEntity];
+			tCache.ReserveText(); // Reserve space to avoid reallocations
 
 			const char* szName = "NPC";
 			switch (pEntity->GetClassID())
@@ -878,44 +914,49 @@ void CESP::StoreWorld()
 		}
 	}
 
-	if (Vars::ESP::Draw.Value & Vars::ESP::DrawEnum::Health)
+	if (drawValue & Vars::ESP::DrawEnum::Health)
 	{
 		for (auto pEntity : H::Entities.GetGroup(EGroupType::PICKUPS_HEALTH))
 		{
 			WorldCache& tCache = m_mWorldCache[pEntity];
+			tCache.ReserveText(); // Reserve space to avoid reallocations
 
 			tCache.m_vText.emplace_back(ESPTextEnum::Top, "Health", Vars::Colors::Health.Value, Vars::Menu::Theme::Background.Value);
 		}
 	}
 
-	if (Vars::ESP::Draw.Value & Vars::ESP::DrawEnum::Ammo)
+	if (drawValue & Vars::ESP::DrawEnum::Ammo)
 	{
 		for (auto pEntity : H::Entities.GetGroup(EGroupType::PICKUPS_AMMO))
 		{
 			WorldCache& tCache = m_mWorldCache[pEntity];
+			tCache.ReserveText(); // Reserve space to avoid reallocations
 
 			tCache.m_vText.emplace_back(ESPTextEnum::Top, "Ammo", Vars::Colors::Ammo.Value, Vars::Menu::Theme::Background.Value);
 		}
 	}
 
-	if (Vars::ESP::Draw.Value & Vars::ESP::DrawEnum::Money)
+	if (drawValue & Vars::ESP::DrawEnum::Money)
 	{
 		for (auto pEntity : H::Entities.GetGroup(EGroupType::PICKUPS_MONEY))
 		{
 			WorldCache& tCache = m_mWorldCache[pEntity];
+			tCache.ReserveText(); // Reserve space to avoid reallocations
 
 			tCache.m_vText.emplace_back(ESPTextEnum::Top, "Money", Vars::Colors::Money.Value, Vars::Menu::Theme::Background.Value);
 		}
 	}
 
-	if (Vars::ESP::Draw.Value & Vars::ESP::DrawEnum::Powerups)
+	if (drawValue & Vars::ESP::DrawEnum::Powerups)
 	{
 		for (auto pEntity : H::Entities.GetGroup(EGroupType::PICKUPS_POWERUP))
 		{
 			WorldCache& tCache = m_mWorldCache[pEntity];
+			tCache.ReserveText(); // Reserve space to avoid reallocations
 
 			const char* szName = "Powerup";
-			switch (FNV1A::Hash32(I::ModelInfoClient->GetModelName(pEntity->GetModel())))
+			const auto modelHash = FNV1A::Hash32(I::ModelInfoClient->GetModelName(pEntity->GetModel()));
+			switch (modelHash)
 			{
 			case FNV1A::Hash32Const("models/pickups/pickup_powerup_agility.mdl"): szName = "Agility"; break;
 			case FNV1A::Hash32Const("models/pickups/pickup_powerup_crit.mdl"): szName = "Revenge"; break;
@@ -927,43 +968,43 @@ void CESP::StoreWorld()
 			case FNV1A::Hash32Const("models/pickups/pickup_powerup_precision.mdl"): szName = "Precision"; break;
 			case FNV1A::Hash32Const("models/pickups/pickup_powerup_reflect.mdl"): szName = "Reflect"; break;
 			case FNV1A::Hash32Const("models/pickups/pickup_powerup_regen.mdl"): szName = "Regeneration"; break;
-			//case FNV1A::Hash32Const("models/pickups/pickup_powerup_resistance.mdl"): szName = "11"; break;
 			case FNV1A::Hash32Const("models/pickups/pickup_powerup_strength.mdl"): szName = "Strength"; break;
-			//case FNV1A::Hash32Const("models/pickups/pickup_powerup_strength_arm.mdl"): szName = "13"; break;
 			case FNV1A::Hash32Const("models/pickups/pickup_powerup_supernova.mdl"): szName = "Supernova"; break;
-			//case FNV1A::Hash32Const("models/pickups/pickup_powerup_thorns.mdl"): szName = "15"; break;
-			//case FNV1A::Hash32Const("models/pickups/pickup_powerup_uber.mdl"): szName = "16"; break;
-			case FNV1A::Hash32Const("models/pickups/pickup_powerup_vampire.mdl"): szName = "Vampire";
+			case FNV1A::Hash32Const("models/pickups/pickup_powerup_vampire.mdl"): szName = "Vampire"; break;
 			}
 			tCache.m_vText.emplace_back(ESPTextEnum::Top, szName, Vars::Colors::Powerup.Value, Vars::Menu::Theme::Background.Value);
 		}
 	}
 
-	if (Vars::ESP::Draw.Value & Vars::ESP::DrawEnum::Bombs)
+	if (drawValue & Vars::ESP::DrawEnum::Bombs)
 	{
 		for (auto pEntity : H::Entities.GetGroup(EGroupType::WORLD_BOMBS))
 		{
 			WorldCache& tCache = m_mWorldCache[pEntity];
+			tCache.ReserveText(); // Reserve space to avoid reallocations
 
-			tCache.m_vText.emplace_back(ESPTextEnum::Top, pEntity->GetClassID() == ETFClassID::CTFPumpkinBomb ? "Pumpkin Bomb" : "Bomb", Vars::Colors::Halloween.Value, Vars::Menu::Theme::Background.Value);
+			const char* szName = pEntity->GetClassID() == ETFClassID::CTFPumpkinBomb ? "Pumpkin Bomb" : "Bomb";
+			tCache.m_vText.emplace_back(ESPTextEnum::Top, szName, Vars::Colors::Halloween.Value, Vars::Menu::Theme::Background.Value);
 		}
 	}
 
-	if (Vars::ESP::Draw.Value & Vars::ESP::DrawEnum::Spellbook)
+	if (drawValue & Vars::ESP::DrawEnum::Spellbook)
 	{
 		for (auto pEntity : H::Entities.GetGroup(EGroupType::PICKUPS_SPELLBOOK))
 		{
 			WorldCache& tCache = m_mWorldCache[pEntity];
+			tCache.ReserveText(); // Reserve space to avoid reallocations
 
 			tCache.m_vText.emplace_back(ESPTextEnum::Top, "Spellbook", Vars::Colors::Halloween.Value, Vars::Menu::Theme::Background.Value);
 		}
 	}
 
-	if (Vars::ESP::Draw.Value & Vars::ESP::DrawEnum::Gargoyle)
+	if (drawValue & Vars::ESP::DrawEnum::Gargoyle)
 	{
 		for (auto pEntity : H::Entities.GetGroup(EGroupType::WORLD_GARGOYLE))
 		{
 			WorldCache& tCache = m_mWorldCache[pEntity];
+			tCache.ReserveText(); // Reserve space to avoid reallocations
 
 			tCache.m_vText.emplace_back(ESPTextEnum::Top, "Gargoyle", Vars::Colors::Halloween.Value, Vars::Menu::Theme::Background.Value);
 		}
@@ -987,14 +1028,26 @@ void CESP::DrawPlayers()
 
 	const auto& fFont = H::Fonts.GetFont(FONT_ESP);
 	const int nTall = fFont.m_nTall + H::Draw.Scale(2);
-	for (auto& [pEntity, tCache] : m_mPlayerCache)
+	const int iVerticalOffset = H::Draw.Scale(3, Scale_Floor) - 1;
+	
+	// Cache frequently used scale values
+	const int scale6 = H::Draw.Scale(6);
+	const int scale5 = H::Draw.Scale(5);
+	const int scale4 = H::Draw.Scale(4);
+	const int scale2Round = H::Draw.Scale(2, Scale_Round);
+	const int scale18Round = H::Draw.Scale(18, Scale_Round);
+	
+	for (const auto& [pEntity, tCache] : m_mPlayerCache)
 	{
 		float x, y, w, h;
 		if (!GetDrawBounds(pEntity, x, y, w, h))
 			continue;
 
-		int l = x - H::Draw.Scale(6), r = x + w + H::Draw.Scale(6), m = x + w / 2;
-		int t = y - H::Draw.Scale(5), b = y + h + H::Draw.Scale(5);
+		const int l = x - scale6;
+		const int r = x + w + scale6;
+		const int m = x + w / 2;
+		const int t = y - scale5;
+		const int b = y + h + scale5;
 		int lOffset = 0, rOffset = 0, bOffset = 0, tOffset = 0;
 
 		I::MatSystemSurface->DrawSetAlphaMultiplier(tCache.m_flAlpha);
@@ -1008,16 +1061,17 @@ void CESP::DrawPlayers()
 			matrix3x4 aBones[MAXSTUDIOBONES];
 			if (pPlayer->SetupBones(aBones, MAXSTUDIOBONES, BONE_USED_BY_ANYTHING, I::GlobalVars->curtime))
 			{
-				switch (H::Entities.GetModel(pPlayer->entindex()))
+				const auto modelHash = H::Entities.GetModel(pPlayer->entindex());
+				if (modelHash == FNV1A::Hash32Const("models/vsh/player/saxton_hale.mdl"))
 				{
-				case FNV1A::Hash32Const("models/vsh/player/saxton_hale.mdl"):
 					DrawBones(pPlayer, aBones, { HITBOX_SAXTON_HEAD, HITBOX_SAXTON_CHEST, HITBOX_SAXTON_PELVIS }, tCache.m_tColor);
 					DrawBones(pPlayer, aBones, { HITBOX_SAXTON_CHEST, HITBOX_SAXTON_LEFT_UPPER_ARM, HITBOX_SAXTON_LEFT_FOREARM, HITBOX_SAXTON_LEFT_HAND }, tCache.m_tColor);
 					DrawBones(pPlayer, aBones, { HITBOX_SAXTON_CHEST, HITBOX_SAXTON_RIGHT_UPPER_ARM, HITBOX_SAXTON_RIGHT_FOREARM, HITBOX_SAXTON_RIGHT_HAND }, tCache.m_tColor);
 					DrawBones(pPlayer, aBones, { HITBOX_SAXTON_PELVIS, HITBOX_SAXTON_LEFT_THIGH, HITBOX_SAXTON_LEFT_CALF, HITBOX_SAXTON_LEFT_FOOT }, tCache.m_tColor);
 					DrawBones(pPlayer, aBones, { HITBOX_SAXTON_PELVIS, HITBOX_SAXTON_RIGHT_THIGH, HITBOX_SAXTON_RIGHT_CALF, HITBOX_SAXTON_RIGHT_FOOT }, tCache.m_tColor);
-					break;
-				default:
+				}
+				else
+				{
 					DrawBones(pPlayer, aBones, { HITBOX_HEAD, HITBOX_CHEST, HITBOX_PELVIS }, tCache.m_tColor);
 					DrawBones(pPlayer, aBones, { HITBOX_CHEST, HITBOX_LEFT_UPPER_ARM, HITBOX_LEFT_FOREARM, HITBOX_LEFT_HAND }, tCache.m_tColor);
 					DrawBones(pPlayer, aBones, { HITBOX_CHEST, HITBOX_RIGHT_UPPER_ARM, HITBOX_RIGHT_FOREARM, HITBOX_RIGHT_HAND }, tCache.m_tColor);
@@ -1029,30 +1083,27 @@ void CESP::DrawPlayers()
 
 		if (tCache.m_bHealthBar)
 		{
+			const int healthBarX = x - scale6;
 			if (tCache.m_flHealth > 1.f)
 			{
-				Color_t cColor = Vars::Colors::IndicatorGood.Value;
-				H::Draw.FillRectPercent(x - H::Draw.Scale(6), y, H::Draw.Scale(2, Scale_Round), h, 1.f, cColor, { 0, 0, 0, 255 }, ALIGN_BOTTOM, true);
-
-				cColor = Vars::Colors::IndicatorMisc.Value;
-				H::Draw.FillRectPercent(x - H::Draw.Scale(6), y, H::Draw.Scale(2, Scale_Round), h, tCache.m_flHealth - 1.f, cColor, { 0, 0, 0, 0 }, ALIGN_BOTTOM, true);
+				H::Draw.FillRectPercent(healthBarX, y, scale2Round, h, 1.f, Vars::Colors::IndicatorGood.Value, { 0, 0, 0, 255 }, ALIGN_BOTTOM, true);
+				H::Draw.FillRectPercent(healthBarX, y, scale2Round, h, tCache.m_flHealth - 1.f, Vars::Colors::IndicatorMisc.Value, { 0, 0, 0, 0 }, ALIGN_BOTTOM, true);
 			}
 			else
 			{
-				Color_t cColor = Vars::Colors::IndicatorBad.Value.Lerp(Vars::Colors::IndicatorGood.Value, tCache.m_flHealth);
-				H::Draw.FillRectPercent(x - H::Draw.Scale(6), y, H::Draw.Scale(2, Scale_Round), h, tCache.m_flHealth, cColor, { 0, 0, 0, 255 }, ALIGN_BOTTOM, true);
+				const Color_t cColor = Vars::Colors::IndicatorBad.Value.Lerp(Vars::Colors::IndicatorGood.Value, tCache.m_flHealth);
+				H::Draw.FillRectPercent(healthBarX, y, scale2Round, h, tCache.m_flHealth, cColor, { 0, 0, 0, 255 }, ALIGN_BOTTOM, true);
 			}
-			lOffset += H::Draw.Scale(6);
+			lOffset += scale6;
 		}
 
 		if (tCache.m_bUberBar)
 		{
-			H::Draw.FillRectPercent(x, y + h + H::Draw.Scale(4), w, H::Draw.Scale(2, Scale_Round), tCache.m_flUber, Vars::Colors::IndicatorMisc.Value);
-			bOffset += H::Draw.Scale(6);
+			H::Draw.FillRectPercent(x, y + h + scale4, w, scale2Round, tCache.m_flUber, Vars::Colors::IndicatorMisc.Value);
+			bOffset += scale6;
 		}
 
-		int iVerticalOffset = H::Draw.Scale(3, Scale_Floor) - 1;
-		for (auto& [iMode, sText, tColor, tOutline] : tCache.m_vText)
+		for (const auto& [iMode, sText, tColor, tOutline] : tCache.m_vText)
 		{
 			switch (iMode)
 			{
@@ -1073,19 +1124,20 @@ void CESP::DrawPlayers()
 				break;
 			case ESPTextEnum::Uber:
 				H::Draw.StringOutlined(fFont, r, y + h, tColor, tOutline, ALIGN_TOPLEFT, sText.c_str());
+				break;
 			}
 		}
 
 		if (tCache.m_iClassIcon)
 		{
-			int size = H::Draw.Scale(18, Scale_Round);
-			H::Draw.Texture(m, t - tOffset, size, size, tCache.m_iClassIcon - 1, ALIGN_BOTTOM);
+			H::Draw.Texture(m, t - tOffset, scale18Round, scale18Round, tCache.m_iClassIcon - 1, ALIGN_BOTTOM);
 		}
 
 		if (tCache.m_pWeaponIcon)
 		{
-			float flW = tCache.m_pWeaponIcon->Width(), flH = tCache.m_pWeaponIcon->Height();
-			float flScale = H::Draw.Scale(std::min((w + 40) / 2.f, 80.f) / std::max(flW, flH * 2));
+			const float flW = tCache.m_pWeaponIcon->Width();
+			const float flH = tCache.m_pWeaponIcon->Height();
+			const float flScale = H::Draw.Scale(std::min((w + 40) / 2.f, 80.f) / std::max(flW, flH * 2));
 			H::Draw.DrawHudTexture(m - flW / 2.f * flScale, b + bOffset, flScale, tCache.m_pWeaponIcon, Vars::Menu::Theme::Active.Value);
 		}
 	}
@@ -1100,14 +1152,24 @@ void CESP::DrawBuildings()
 
 	const auto& fFont = H::Fonts.GetFont(FONT_ESP);
 	const int nTall = fFont.m_nTall + H::Draw.Scale(2);
-	for (auto& [pEntity, tCache] : m_mBuildingCache)
+	const int iVerticalOffset = H::Draw.Scale(3, Scale_Floor) - 1;
+	
+	// Cache frequently used scale values
+	const int scale6 = H::Draw.Scale(6);
+	const int scale5 = H::Draw.Scale(5);
+	const int scale2Round = H::Draw.Scale(2, Scale_Round);
+	
+	for (const auto& [pEntity, tCache] : m_mBuildingCache)
 	{
 		float x, y, w, h;
 		if (!GetDrawBounds(pEntity, x, y, w, h))
 			continue;
 
-		int l = x - H::Draw.Scale(6), r = x + w + H::Draw.Scale(6), m = x + w / 2;
-		int t = y - H::Draw.Scale(5), b = y + h + H::Draw.Scale(5);
+		const int l = x - scale6;
+		const int r = x + w + scale6;
+		const int m = x + w / 2;
+		const int t = y - scale5;
+		const int b = y + h + scale5;
 		int lOffset = 0, rOffset = 0, bOffset = 0, tOffset = 0;
 
 		I::MatSystemSurface->DrawSetAlphaMultiplier(tCache.m_flAlpha);
@@ -1117,13 +1179,12 @@ void CESP::DrawBuildings()
 
 		if (tCache.m_bHealthBar)
 		{
-			Color_t cColor = Vars::Colors::IndicatorBad.Value.Lerp(Vars::Colors::IndicatorGood.Value, tCache.m_flHealth);
-			H::Draw.FillRectPercent(x - H::Draw.Scale(6), y, H::Draw.Scale(2, Scale_Round), h, tCache.m_flHealth, cColor, { 0, 0, 0, 255 }, ALIGN_BOTTOM, true);
-			lOffset += H::Draw.Scale(6);
+			const Color_t cColor = Vars::Colors::IndicatorBad.Value.Lerp(Vars::Colors::IndicatorGood.Value, tCache.m_flHealth);
+			H::Draw.FillRectPercent(x - scale6, y, scale2Round, h, tCache.m_flHealth, cColor, { 0, 0, 0, 255 }, ALIGN_BOTTOM, true);
+			lOffset += scale6;
 		}
 
-		int iVerticalOffset = H::Draw.Scale(3, Scale_Floor) - 1;
-		for (auto& [iMode, sText, tColor, tOutline] : tCache.m_vText)
+		for (const auto& [iMode, sText, tColor, tOutline] : tCache.m_vText)
 		{
 			switch (iMode)
 			{
@@ -1153,14 +1214,23 @@ void CESP::DrawWorld()
 {
 	const auto& fFont = H::Fonts.GetFont(FONT_ESP);
 	const int nTall = fFont.m_nTall + H::Draw.Scale(2);
-	for (auto& [pEntity, tCache] : m_mWorldCache)
+	const int iVerticalOffset = H::Draw.Scale(3, Scale_Floor) - 1;
+	
+	// Cache frequently used scale values
+	const int scale6 = H::Draw.Scale(6);
+	const int scale5 = H::Draw.Scale(5);
+	
+	for (const auto& [pEntity, tCache] : m_mWorldCache)
 	{
 		float x, y, w, h;
 		if (!GetDrawBounds(pEntity, x, y, w, h))
 			continue;
 
-		int l = x - H::Draw.Scale(6), r = x + w + H::Draw.Scale(6), m = x + w / 2;
-		int t = y - H::Draw.Scale(5), b = y + h + H::Draw.Scale(5);
+		const int l = x - scale6;
+		const int r = x + w + scale6;
+		const int m = x + w / 2;
+		const int t = y - scale5;
+		const int b = y + h + scale5;
 		int lOffset = 0, rOffset = 0, bOffset = 0, tOffset = 0;
 
 		I::MatSystemSurface->DrawSetAlphaMultiplier(tCache.m_flAlpha);
@@ -1168,8 +1238,7 @@ void CESP::DrawWorld()
 		if (tCache.m_bBox)
 			H::Draw.LineRectOutline(x, y, w, h, tCache.m_tColor, { 0, 0, 0, 255 });
 
-		int iVerticalOffset = H::Draw.Scale(3, Scale_Floor) - 1;
-		for (auto& [iMode, sText, tColor, tOutline] : tCache.m_vText)
+		for (const auto& [iMode, sText, tColor, tOutline] : tCache.m_vText)
 		{
 			switch (iMode)
 			{
@@ -1184,6 +1253,7 @@ void CESP::DrawWorld()
 			case ESPTextEnum::Right:
 				H::Draw.StringOutlined(fFont, r, t + iVerticalOffset + rOffset, tColor, tOutline, ALIGN_TOPLEFT, sText.c_str());
 				rOffset += nTall;
+				break;
 			}
 		}
 	}
@@ -1202,10 +1272,21 @@ Color_t CESP::GetColor(CTFPlayer* pLocal, CBaseEntity* pEntity)
 
 bool CESP::GetDrawBounds(CBaseEntity* pEntity, float& x, float& y, float& w, float& h)
 {
-	Vec3 vOrigin = pEntity->GetAbsOrigin();
+	const Vec3 vOrigin = pEntity->GetAbsOrigin();
 	matrix3x4 mTransform = { { 1, 0, 0, vOrigin.x }, { 0, 1, 0, vOrigin.y }, { 0, 0, 1, vOrigin.z } };
-	//if (pEntity->entindex() == I::EngineClient->GetLocalPlayer())
-		Math::AngleMatrix({ 0.f, I::EngineClient->GetViewAngles().y, 0.f }, mTransform, false);
+	
+	// Cache view angles to avoid repeated function calls
+	static float cachedViewAngleY = 0.f;
+	static int lastFrameCount = -1;
+	const int currentFrame = I::GlobalVars->framecount;
+	
+	if (lastFrameCount != currentFrame)
+	{
+		cachedViewAngleY = I::EngineClient->GetViewAngles().y;
+		lastFrameCount = currentFrame;
+	}
+	
+	Math::AngleMatrix({ 0.f, cachedViewAngleY, 0.f }, mTransform, false);
 
 	float flLeft, flRight, flTop, flBottom;
 	if (!SDK::IsOnScreen(pEntity, mTransform, &flLeft, &flRight, &flTop, &flBottom))
@@ -1216,27 +1297,32 @@ bool CESP::GetDrawBounds(CBaseEntity* pEntity, float& x, float& y, float& w, flo
 	w = flRight - flLeft;
 	h = flTop - flBottom;
 
-	switch (pEntity->GetClassID())
+	// Optimize class ID check with early exit
+	const auto classID = pEntity->GetClassID();
+	if (classID == ETFClassID::CTFPlayer ||
+		classID == ETFClassID::CObjectSentrygun ||
+		classID == ETFClassID::CObjectDispenser ||
+		classID == ETFClassID::CObjectTeleporter)
 	{
-	case ETFClassID::CTFPlayer:
-	case ETFClassID::CObjectSentrygun:
-	case ETFClassID::CObjectDispenser:
-	case ETFClassID::CObjectTeleporter:
 		x += w * 0.125f;
 		w *= 0.75f;
 	}
 
-	return !(x > H::Draw.m_nScreenW || x + w < 0 || y > H::Draw.m_nScreenH || y + h < 0);
+	// Cache screen dimensions to avoid repeated member access
+	static int cachedScreenW = 0;
+	static int cachedScreenH = 0;
+	static int lastScreenFrame = -1;
+	
+	if (lastScreenFrame != currentFrame)
+	{
+		cachedScreenW = H::Draw.m_nScreenW;
+		cachedScreenH = H::Draw.m_nScreenH;
+		lastScreenFrame = currentFrame;
+	}
+
+	return !(x > cachedScreenW || x + w < 0 || y > cachedScreenH || y + h < 0);
 }
 
-const char* CESP::GetPlayerClass(int iClassNum)
-{
-	static const char* szClasses[] = {
-		"Unknown", "Scout", "Sniper", "Soldier", "Demoman", "Medic", "Heavy", "Pyro", "Spy", "Engineer"
-	};
-
-	return iClassNum < 10 && iClassNum > 0 ? szClasses[iClassNum] : szClasses[0];
-}
 
 void CESP::DrawBones(CTFPlayer* pPlayer, matrix3x4* aBones, std::vector<int> vecBones, Color_t clr)
 {
