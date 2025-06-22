@@ -22,18 +22,18 @@ struct Target_t
 class CAimbotGlobal
 {
 public:
-	void SortTargets(std::vector<Target_t>&, int iMethod);
-	void SortPriority(std::vector<Target_t>&);
+	void SortTargets(std::vector<Target_t>&, const int iMethod) noexcept;
+	void SortPriority(std::vector<Target_t>&) noexcept;
 
-	bool PlayerBoneInFOV(CTFPlayer* pTarget, Vec3 vLocalPos, Vec3 vLocalAngles, float& flFOVTo, Vec3& vPos, Vec3& vAngleTo, int iHitboxes = Vars::Aimbot::Hitscan::HitboxesEnum::Head | Vars::Aimbot::Hitscan::HitboxesEnum::Body | Vars::Aimbot::Hitscan::HitboxesEnum::Pelvis | Vars::Aimbot::Hitscan::HitboxesEnum::Arms | Vars::Aimbot::Hitscan::HitboxesEnum::Legs);
-	bool IsHitboxValid(uint32_t uHash, int nHitbox, int iHitboxes = Vars::Aimbot::Hitscan::HitboxesEnum::Head | Vars::Aimbot::Hitscan::HitboxesEnum::Body | Vars::Aimbot::Hitscan::HitboxesEnum::Pelvis | Vars::Aimbot::Hitscan::HitboxesEnum::Arms | Vars::Aimbot::Hitscan::HitboxesEnum::Legs);
+	bool PlayerBoneInFOV(CTFPlayer* pTarget, const Vec3 vLocalPos, const Vec3 vLocalAngles, float& flFOVTo, Vec3& vPos, Vec3& vAngleTo, const int iHitboxes = Vars::Aimbot::Hitscan::HitboxesEnum::Head | Vars::Aimbot::Hitscan::HitboxesEnum::Body | Vars::Aimbot::Hitscan::HitboxesEnum::Pelvis | Vars::Aimbot::Hitscan::HitboxesEnum::Arms | Vars::Aimbot::Hitscan::HitboxesEnum::Legs) noexcept;
+	bool IsHitboxValid(const uint32_t uHash, const int nHitbox, const int iHitboxes = Vars::Aimbot::Hitscan::HitboxesEnum::Head | Vars::Aimbot::Hitscan::HitboxesEnum::Body | Vars::Aimbot::Hitscan::HitboxesEnum::Pelvis | Vars::Aimbot::Hitscan::HitboxesEnum::Arms | Vars::Aimbot::Hitscan::HitboxesEnum::Legs) noexcept;
 
-	bool ShouldIgnore(CBaseEntity* pTarget, CTFPlayer* pLocal, CTFWeaponBase* pWeapon);
-	int GetPriority(int iIndex);
+	bool ShouldIgnore(CBaseEntity* pTarget, CTFPlayer* pLocal, CTFWeaponBase* pWeapon) noexcept;
+	int GetPriority(const int iIndex) noexcept;
 
-	bool ShouldAim();
-	bool ShouldHoldAttack(CTFWeaponBase* pWeapon);
-	bool ValidBomb(CTFPlayer* pLocal, CTFWeaponBase* pWeapon, CBaseEntity* pBomb);
+	bool ShouldAim() noexcept;
+	bool ShouldHoldAttack(CTFWeaponBase* pWeapon) noexcept;
+	bool ValidBomb(CTFPlayer* pLocal, CTFWeaponBase* pWeapon, CBaseEntity* pBomb) noexcept;
 };
 
 ADD_FEATURE(CAimbotGlobal, AimbotGlobal);

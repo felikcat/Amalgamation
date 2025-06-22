@@ -149,7 +149,11 @@ void CAimbotMelee::SimulatePlayers(CTFPlayer* pLocal, CTFWeaponBase* pWeapon, st
 						mRecordMap[tTarget.m_pEntity->entindex()].emplace_front(
 							!Vars::Aimbot::Melee::SwingPredictLag.Value || tStorage.m_bPredictNetworked ? tTarget.m_pEntity->m_flSimulationTime() + TICKS_TO_TIME(i + 1) : 0.f,
 							Vars::Aimbot::Melee::SwingPredictLag.Value ? tStorage.m_vPredictedOrigin : tStorage.m_MoveData.m_vecAbsOrigin,
-							tTarget.m_pEntity->m_vecMins(), tTarget.m_pEntity->m_vecMaxs()
+							tTarget.m_pEntity->m_vecMins(),
+							tTarget.m_pEntity->m_vecMaxs(),
+							BoneMatrix{},
+							false,
+							Vars::Aimbot::Melee::SwingPredictLag.Value ? tStorage.m_vPredictedOrigin : tStorage.m_MoveData.m_vecAbsOrigin
 						);
 				}
 			}
@@ -288,7 +292,15 @@ int CAimbotMelee::CanHit(Target_t& tTarget, CTFPlayer* pLocal, CTFWeaponBase* pW
 		if (!tTarget.m_pEntity->SetupBones(aBones, MAXSTUDIOBONES, BONE_USED_BY_ANYTHING, tTarget.m_pEntity->m_flSimulationTime()))
 			return false;
 
-		F::Backtrack.m_tRecord = { tTarget.m_pEntity->m_flSimulationTime(), tTarget.m_pEntity->m_vecOrigin(), tTarget.m_pEntity->m_vecMins(), tTarget.m_pEntity->m_vecMaxs(), *reinterpret_cast<BoneMatrix*>(&aBones) };
+		F::Backtrack.m_tRecord = TickRecord(
+			tTarget.m_pEntity->m_flSimulationTime(),
+			tTarget.m_pEntity->m_vecOrigin(),
+			tTarget.m_pEntity->m_vecMins(),
+			tTarget.m_pEntity->m_vecMaxs(),
+			*reinterpret_cast<BoneMatrix*>(&aBones),
+			false,  // bOnShot
+			Vec3{}  // vBreak
+		);
 		vRecords = { &F::Backtrack.m_tRecord };
 	}
 

@@ -487,7 +487,7 @@ static inline std::vector<std::pair<Vec3, int>> ComputeSphere(float flRadius, in
 		Vec3 vPoint(flRadius2D_f * flCosTheta, flRadius2D_f * flSinTheta, flY);
 		
 		// Optimized rotation using pre-calculated sin/cos values with improved numerical stability
-		if (bHasRotation) [[likely]]
+		if (bHasRotation) 
 		{
 			// Inline rotation for better performance - Y rotation first, then X
 			const float flTempX = std::fma(vPoint.x, flCosY, -vPoint.z * flSinY);
@@ -500,7 +500,7 @@ static inline std::vector<std::pair<Vec3, int>> ComputeSphere(float flRadius, in
 		}
 		
 		// Optimized nth root calculation with fast approximation and better numerical stability
-		if (bHasNthRoot) [[unlikely]]
+		if (bHasNthRoot) 
 		{
 			// Use fast sign-preserving power function with improved precision
 			auto fastSignedPow = [flInvNthroot](float x) noexcept -> float {
@@ -1109,7 +1109,7 @@ static inline Vec3 PullPoint(Vec3 vPoint, Vec3 vLocalPos, Info_t& tInfo, Vec3 vM
 
 static inline void SolveProjectileSpeed(CTFWeaponBase* pWeapon, const Vec3& vLocalPos, const Vec3& vTargetPos, float& flVelocity, float& flDragTime, const float flGravity) noexcept
 {
-	if (!F::ProjSim.obj->IsDragEnabled() || F::ProjSim.obj->m_dragBasis.IsZero()) [[likely]]
+	if (!F::ProjSim.obj->IsDragEnabled() || F::ProjSim.obj->m_dragBasis.IsZero()) 
 		return;
 
 	// Enhanced numerical precision for drag calculations with improved distance accuracy
@@ -1120,7 +1120,7 @@ static inline void SolveProjectileSpeed(CTFWeaponBase* pWeapon, const Vec3& vLoc
 	const long double ldVelSq = ldVelocity * ldVelocity;
 
 	// Early exit for degenerate cases with tighter tolerance
-	if (ldDist < 1e-9L || ldVelocity < 1e-9L) [[unlikely]]
+	if (ldDist < 1e-9L || ldVelocity < 1e-9L) 
 		return;
 
 	// Enhanced ballistic calculation with improved numerical stability for demoman pipes
@@ -1131,14 +1131,14 @@ static inline void SolveProjectileSpeed(CTFWeaponBase* pWeapon, const Vec3& vLoc
 	// Use more accurate discriminant calculation for projectile physics
 	const long double ldRoot = ldVelQuad - ldGrav * (ldGrav * ldDist2D * ldDist2D + 2.0L * ldDeltaZ * ldVelSq);
 	
-	if (ldRoot < 0.0L) [[unlikely]]
+	if (ldRoot < 0.0L) 
 		return;
 
 	const long double ldSqrtRoot = std::sqrt(ldRoot);
 	const long double ldPitch = std::atan((ldVelSq - ldSqrtRoot) / (ldGrav * ldDist2D));
 	const long double ldCosPitch = std::cos(ldPitch);
 	
-	if (std::abs(ldCosPitch) < 1e-12L) [[unlikely]]
+	if (std::abs(ldCosPitch) < 1e-12L) 
 		return;
 		
 	// More accurate time calculation using actual projectile path distance
@@ -1146,7 +1146,7 @@ static inline void SolveProjectileSpeed(CTFWeaponBase* pWeapon, const Vec3& vLoc
 	const float flTime = static_cast<float>(ldTime);
 
 	float flDrag = 0.0f;
-	if (const float dragOverride = Vars::Aimbot::Projectile::DragOverride.Value; dragOverride > 0.0f) [[unlikely]]
+	if (const float dragOverride = Vars::Aimbot::Projectile::DragOverride.Value; dragOverride > 0.0f) 
 	{
 		flDrag = dragOverride;
 	}
@@ -1197,7 +1197,7 @@ static inline void SolveProjectileSpeed(CTFWeaponBase* pWeapon, const Vec3& vLoc
 		const auto dragEntry = std::find_if(dragTable.begin(), dragTable.end(),
 			[weaponIndex](const auto& entry) noexcept { return entry.itemIndex == weaponIndex; });
 		
-		if (dragEntry != dragTable.end() && dragEntry->maxVel > 0.0f) [[unlikely]]
+		if (dragEntry != dragTable.end() && dragEntry->maxVel > 0.0f) 
 		{
 			// For weapons with fixed drag values, use the fixed value
 			if (dragEntry->minVel == dragEntry->maxVel) {
@@ -1212,7 +1212,7 @@ static inline void SolveProjectileSpeed(CTFWeaponBase* pWeapon, const Vec3& vLoc
 			const auto fixedEntry = std::find_if(fixedDragTable.begin(), fixedDragTable.end(),
 				[weaponIndex](const auto& entry) noexcept { return entry.itemIndex == weaponIndex; });
 			
-			if (fixedEntry != fixedDragTable.end()) [[unlikely]]
+			if (fixedEntry != fixedDragTable.end()) 
 				flDrag = fixedEntry->drag;
 		}
 	}
@@ -1538,7 +1538,7 @@ bool CAimbotProjectile::TestAngle(CTFPlayer* pLocal, CTFWeaponBase* pWeapon, Tar
 	constexpr int iFlags = ProjSimEnum::Trace | ProjSimEnum::InitCheck | ProjSimEnum::NoRandomAngles | ProjSimEnum::PredictCmdNum;
 	
 #ifdef SPLASH_DEBUG6
-	if (Vars::Visuals::Trajectory::Override.Value) [[unlikely]]
+	if (Vars::Visuals::Trajectory::Override.Value) 
 	{
 		if (!Vars::Visuals::Trajectory::Pipes.Value)
 			mTraceCount["Setup trace test"]++;
@@ -1554,14 +1554,14 @@ bool CAimbotProjectile::TestAngle(CTFPlayer* pLocal, CTFWeaponBase* pWeapon, Tar
 		};
 		
 		const int weaponID = pWeapon->GetWeaponID();
-		if (std::find(debugWeapons.begin(), debugWeapons.end(), weaponID) != debugWeapons.end()) [[unlikely]]
+		if (std::find(debugWeapons.begin(), debugWeapons.end(), weaponID) != debugWeapons.end()) 
 			mTraceCount["Setup trace test"]++;
 	}
 	mTraceCount["Trace init check test"]++;
 #endif
 
 	ProjectileInfo tProjInfo = {};
-	if (!F::ProjSim.GetInfo(pLocal, pWeapon, vAngles, tProjInfo, iFlags) || !F::ProjSim.Initialize(tProjInfo)) [[unlikely]]
+	if (!F::ProjSim.GetInfo(pLocal, pWeapon, vAngles, tProjInfo, iFlags) || !F::ProjSim.Initialize(tProjInfo)) 
 		return false;
 
 	bool bDidHit = false;
@@ -1575,7 +1575,7 @@ bool CAimbotProjectile::TestAngle(CTFPlayer* pLocal, CTFWeaponBase* pWeapon, Tar
 #endif
 
 	// Early exit for non-gravity projectiles
-	if (!tProjInfo.m_flGravity) [[unlikely]]
+	if (!tProjInfo.m_flGravity) 
 	{
 		CTraceFilterWorldAndPropsOnly filterWorld = {};
 		SDK::TraceHull(tProjInfo.m_vPos, vPoint, tProjInfo.m_vHull * -1, tProjInfo.m_vHull, MASK_SOLID, &filterWorld, &trace);
@@ -1585,7 +1585,7 @@ bool CAimbotProjectile::TestAngle(CTFPlayer* pLocal, CTFWeaponBase* pWeapon, Tar
 #ifdef SPLASH_DEBUG5
 		G::LineStorage.emplace_back(std::pair<Vec3, Vec3>(tProjInfo.m_vPos, vPoint), I::GlobalVars->curtime + 5.f, Color_t(0, 0, 0));
 #endif
-		if (trace.fraction < 0.999f) [[unlikely]]
+		if (trace.fraction < 0.999f) 
 			return false;
 	}
 
@@ -1608,14 +1608,14 @@ bool CAimbotProjectile::TestAngle(CTFPlayer* pLocal, CTFWeaponBase* pWeapon, Tar
 		F::ProjSim.RunTick(tProjInfo);
 		const Vec3 vNew = F::ProjSim.GetOrigin();
 
-		if (bDidHit) [[unlikely]]
+		if (bDidHit) 
 		{
 			trace.endpos = vNew;
 			continue;
 		}
 
 		// Optimized tracing logic with branch prediction hints
-		if (!bSplash) [[likely]]
+		if (!bSplash) 
 		{
 			SDK::TraceHull(vOld, vNew, tProjInfo.m_vHull * -1, tProjInfo.m_vHull, MASK_SOLID, &filter, &trace);
 #ifdef SPLASH_DEBUG6
@@ -1627,9 +1627,9 @@ bool CAimbotProjectile::TestAngle(CTFPlayer* pLocal, CTFWeaponBase* pWeapon, Tar
 		}
 		else
 		{
-			if (n == 1 || bPrimeTime) [[unlikely]]
+			if (n == 1 || bPrimeTime) 
 				vStaticPos = vOld;
-			if (n % splashInterval && n != iSimTime && !bPrimeTime) [[likely]]
+			if (n % splashInterval && n != iSimTime && !bPrimeTime) 
 				continue;
 
 			SDK::TraceHull(vStaticPos, vNew, tProjInfo.m_vHull * -1, tProjInfo.m_vHull, MASK_SOLID, &filterSplash, &trace);
@@ -1642,9 +1642,9 @@ bool CAimbotProjectile::TestAngle(CTFPlayer* pLocal, CTFWeaponBase* pWeapon, Tar
 			vStaticPos = vNew;
 		}
 		
-		if (trace.DidHit()) [[unlikely]]
+		if (trace.DidHit()) 
 		{
-			if (pHitSolid) [[likely]]
+			if (pHitSolid) 
 				*pHitSolid = true;
 
 			// Optimized validation logic with branch prediction
@@ -1654,20 +1654,20 @@ bool CAimbotProjectile::TestAngle(CTFPlayer* pLocal, CTFWeaponBase* pWeapon, Tar
 			const bool bTarget = trace.m_pEnt == tTarget.m_pEntity || bSplash;
 			bool bValid = bTarget && bTime;
 			
-			if (bValid && bSplash) [[unlikely]]
+			if (bValid && bSplash) 
 			{
 				bValid = SDK::VisPosWorld(nullptr, tTarget.m_pEntity, trace.endpos, vPoint, MASK_SOLID);
 #ifdef SPLASH_DEBUG6
 				mTraceCount["Splash vispos"]++;
 #endif
-				if (bValid) [[likely]]
+				if (bValid) 
 				{
 					// Use constexpr array for rocket weapons check
 					static constexpr std::array<int, 3> rocketWeapons = {
 						TF_WEAPON_ROCKETLAUNCHER, TF_WEAPON_ROCKETLAUNCHER_DIRECTHIT, TF_WEAPON_PARTICLE_CANNON
 					};
 					
-					if (std::find(rocketWeapons.begin(), rocketWeapons.end(), weaponID) != rocketWeapons.end()) [[unlikely]]
+					if (std::find(rocketWeapons.begin(), rocketWeapons.end(), weaponID) != rocketWeapons.end()) 
 					{
 						CGameTrace eyeTrace = {};
 						CTraceFilterWorldAndPropsOnly filter = {};
@@ -1697,9 +1697,9 @@ bool CAimbotProjectile::TestAngle(CTFPlayer* pLocal, CTFWeaponBase* pWeapon, Tar
 				G::BoxStorage.emplace_back(vPoint, tProjInfo.m_vHull * -1, tProjInfo.m_vHull, Vec3(), I::GlobalVars->curtime + 5.f, Color_t(0, 0, 255), Color_t(0, 0, 0, 0));
 #endif
 
-			if (bValid) [[likely]]
+			if (bValid) 
 			{
-				if (bSplash) [[unlikely]]
+				if (bSplash) 
 				{
 					const int iPopCount = splashInterval - static_cast<int>(trace.fraction * splashInterval);
 					for (int i = 0; i < iPopCount && !tProjInfo.m_vPath.empty(); ++i)
@@ -1710,7 +1710,7 @@ bool CAimbotProjectile::TestAngle(CTFPlayer* pLocal, CTFWeaponBase* pWeapon, Tar
 				const int aimType = Vars::Aimbot::General::AimType.Value;
 				if ((aimType == Vars::Aimbot::General::AimTypeEnum::Smooth ||
 					 aimType == Vars::Aimbot::General::AimTypeEnum::Assistive) &&
-					tTarget.m_nAimedHitbox == HITBOX_HEAD) [[unlikely]]
+					tTarget.m_nAimedHitbox == HITBOX_HEAD) 
 				{
 					const Vec3 vOffset = (trace.endpos - vNew) + (vOriginal - tTarget.m_vPos);
 
@@ -1770,7 +1770,7 @@ bool CAimbotProjectile::TestAngle(CTFPlayer* pLocal, CTFWeaponBase* pWeapon, Tar
 
 				bDidHit = true;
 			}
-			else if (!bSplash && bTarget && weaponID == TF_WEAPON_PIPEBOMBLAUNCHER) [[unlikely]]
+			else if (!bSplash && bTarget && weaponID == TF_WEAPON_PIPEBOMBLAUNCHER) 
 			{
 				// run for more ticks to check for splash
 				iSimTime = n + 5;
@@ -1780,10 +1780,10 @@ bool CAimbotProjectile::TestAngle(CTFPlayer* pLocal, CTFWeaponBase* pWeapon, Tar
 				break;
 
 			continueLoop:
-			if (!bSplash) [[likely]]
+			if (!bSplash) 
 				trace.endpos = vNew;
 
-			if (!bTarget || (bSplash && !bPrimeTime)) [[unlikely]]
+			if (!bTarget || (bSplash && !bPrimeTime)) 
 				break;
 		}
 	}
@@ -1791,7 +1791,7 @@ bool CAimbotProjectile::TestAngle(CTFPlayer* pLocal, CTFWeaponBase* pWeapon, Tar
 	// Restore original position
 	tTarget.m_pEntity->SetAbsOrigin(vOriginal);
 
-	if (bDidHit && pProjectilePath) [[likely]]
+	if (bDidHit && pProjectilePath) 
 	{
 		tProjInfo.m_vPath.push_back(trace.endpos);
 		*pProjectilePath = std::move(tProjInfo.m_vPath);
