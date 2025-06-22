@@ -34,3 +34,9 @@ image:https://img.shields.io/github/actions/workflow/status/felikcat/Amalgam/msb
 image:https://img.shields.io/github/commit-activity/m/felikcat/Amalgam[GitHub commit activity,link=/../../commits/]
 
 Only link:https://github.com/DarthTon/Xenos/releases[Xenos] and "protecting" both Xenos and Amalgamation with Themida is recommended, don't use a VAC bypass as you'll get banned after too many reports.
+
+== Building
+
+. Change to ReleaseFreetype if your CPU doesn't have AVX2: +
+`.\Build.ps1 -ProjectPath "Amalgam.sln" -Configuration "ReleaseFreetypeAVX2" -Platform "x64"`
+- Alternatively you can use Visual Studio 2022 to compile.

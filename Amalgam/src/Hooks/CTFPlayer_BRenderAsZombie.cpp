@@ -1,3 +1,5 @@
+// This is an open source non-commercial project. Dear PVS-Studio, please check it.
+// PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include "../SDK/SDK.h"
 
 MAKE_SIGNATURE(CTFPlayer_BRenderAsZombie, "client.dll", "48 89 5C 24 ? 57 48 83 EC ? 48 8B D9 B9 ? ? ? ? E8 ? ? ? ? 84 C0", 0x0);

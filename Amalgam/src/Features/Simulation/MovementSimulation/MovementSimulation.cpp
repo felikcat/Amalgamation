@@ -1,3 +1,5 @@
+// This is an open source non-commercial project. Dear PVS-Studio, please check it.
+// PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include "MovementSimulation.h"
 
 #include "../../EnginePrediction/EnginePrediction.h"
@@ -355,7 +357,7 @@ bool CMovementSimulation::Initialize(CBaseEntity* pEntity, PlayerStorage& tStora
 		if (flCurrentChance < Vars::Aimbot::Projectile::HitChance.Value / 100)
 		{
 			char szBuffer[128];
-			sprintf_s(szBuffer, "Hitchance (%.1f%% < %d%%)", flCurrentChance * 100, Vars::Aimbot::Projectile::HitChance.Value);
+			sprintf_s(szBuffer, "Hitchance (%.1f%% < %.0f%%)", flCurrentChance * 100.0f, Vars::Aimbot::Projectile::HitChance.Value);
 			SDK::Output("MovementSimulation", szBuffer, { 80, 200, 120 }, Vars::Debug::Logging.Value);
 
 			tStorage.m_bFailed = true;

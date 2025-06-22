@@ -1,3 +1,5 @@
+// This is an open source non-commercial project. Dear PVS-Studio, please check it.
+// PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include "../SDK/SDK.h"
 
 MAKE_SIGNATURE(CTFRocketLauncher_CheckReloadMisfire, "client.dll", "48 83 EC ? E8 ? ? ? ? 32 C0", 0x0);

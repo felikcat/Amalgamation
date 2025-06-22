@@ -1,3 +1,5 @@
+// This is an open source non-commercial project. Dear PVS-Studio, please check it.
+// PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include "../SDK/SDK.h"
 
 MAKE_HOOK(CStudioRender_DrawModelStaticProp, U::Memory.GetVirtual(I::StudioRender, 30), void,

@@ -1,3 +1,5 @@
+// This is an open source non-commercial project. Dear PVS-Studio, please check it.
+// PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include "AutoHeal.h"
 
 #include "../../Players/PlayerUtils.h"
@@ -185,7 +187,7 @@ void CAutoHeal::GetDangers(CTFPlayer* pTarget, bool bVaccinator, float& flBullet
 			else if (bClassic || !bZoom)
 				flDamage = SDK::AttribHookValue(50.f, "bodyshot_damage_modify", pWeapon);
 			else
-				flDamage = 150.f, flMult = flMult = std::max(bHeadshot || bClassic ? 3.f : bPiss ? 1.36f : 1.f, flMult);
+				flDamage = 150.f, flMult = std::max(bHeadshot || bClassic ? 3.f : bPiss ? 1.36f : 1.f, flMult);
 			break;
 		}
 		case TF_WEAPON_COMPOUND_BOW:

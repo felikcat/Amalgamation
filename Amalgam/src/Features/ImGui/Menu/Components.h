@@ -1768,7 +1768,9 @@ namespace ImGui
 			}
 
 			if ((bEnter || iFlags & FSDropdownEnum::AutoUpdate) && (iFlags & FSDropdownEnum::Custom || vEntries.empty()))
+			{
 				*pVar = sPreview; bReturn = true;
+			}
 			if (bEnter || U::KeyHandler.Down(VK_ESCAPE))
 				CloseCurrentPopup();
 

@@ -5,6 +5,7 @@
 
 *.exe
 .vscode
+.PVS-Studio
 
 # User-specific files
 *.rsuser
