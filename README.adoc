@@ -48,6 +48,7 @@ Do not create new files.
 Apply the changes in small chunks at a time.
 Aggressively introduce mathematical theories including numerical analysis, computational geometry, linear algebra optimizations, differential equations solvers, quaternion mathematics, vector field theory, physics simulation algorithms, spatial partitioning techniques, interpolation methods, optimization algorithms, statistical methods, signal processing techniques, and any other mathematical frameworks that would enhance the pre-existing code and implement comprehensive performance improvements including SIMD vectorization, cache-friendly data structures, memory pool allocation, branch prediction optimization, loop unrolling, template metaprogramming, constexpr evaluation, move semantics, perfect forwarding, and modern C++23 features.
 Do not override the old comments or documentation.
+Do not check the other tabs for code.
 Never create dummy or placeholder code.
 Never check for errors or mistakes until after the build command is ran.
 
@@ -57,6 +58,7 @@ The file to apply changes is:
 ----
 
 .Notes
+- Disable Intellisense or clangd if it's used, you don't want the AI knowing if it made any mistakes until after an attempted build.
 - The code can be overcomplex if the AI is not told explicitly to keep it as simple as possible, however telling it initially to be as simple as possible results in a worse output. So it's better to let it go wild at first, then refine it later, despite this costing more $.
 - AI sometimes generates broken code and requires manual fixing if not told to keep to the original vision as closely as possible, but doing this results in a worse output.
 - The AI tasks have to be applied in small chunks at a time.
