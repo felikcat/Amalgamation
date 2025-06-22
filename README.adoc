@@ -15,8 +15,6 @@ endif::[]
 AVX2 may be faster than SSE2 though not all CPUs support it (`Steam > Help > System Information > Processor Information > AVX2`). Freetype uses freetype as the text rasterizer and includes some custom fonts, which results in better looking text but larger DLL sizes. PDBs are for developer use.
 ====
 
-WARNING: This fork of Amalgam uses AI heavily, it's primarily as a testbed for it.
-
 Only link:https://github.com/DarthTon/Xenos/releases[Xenos] and "protecting" both Xenos and Amalgamation with Themida is recommended, don't use a VAC bypass as you'll get banned after too many reports.
 
 == Building
@@ -29,10 +27,14 @@ Only link:https://github.com/DarthTon/Xenos/releases[Xenos] and "protecting" bot
 == AI
 
 .Is it ready to improve pre-existing code yet?
-- You can extract a few things out of it, but without effort, no.
+- No, and what it'll show you as improvements don't matter. A complete waste of time.
+
+.End-goal
+- For it to rewrite existing code into something that's improved while still being human-readable. +
+I estimate it'll take AI two years past June 22 2025 before it can improve a cheat, but it won't be able to write one from scratch.
 
 .Is it expensive?
-- Very, it's usually over $2 USD a file for one run, sometimes $3.
+- Very, it's usually over $2 USD a file for one run, sometimes $3, with the most expensive file change being close to $8.
 
 .Specifications
 - AI model: Claude Sonnet 4 by Anthropic; used via API tokens on a tier 3 plan.
@@ -40,8 +42,7 @@ Only link:https://github.com/DarthTon/Xenos/releases[Xenos] and "protecting" bot
 - Editor or IDE: Visual Studio Code. Visual Studio is used exclusively for PVS-Studio and adding or removing files.
 - Default prompt:
 ----
-You must cache read every .cpp and .h file in bulk for the current codebase.
-Use context7 mcp to lookup the following: /microsoftdocs/cpp-docs, /isocpp/cppcoreguidelines, and /valvesoftware/source-sdk-2013. The codebase language standard is C++23.
+Use context7 mcp to lookup the following: /microsoftdocs/cpp-docs, and /isocpp/cppcoreguidelines. The codebase language standard is C++23.
 Always use the newest C++ language features if it's more performant.
 Only add documentation if it helps in reading the code.
 Do not create new files.
@@ -56,16 +57,30 @@ The build command for testing if changes were successful is: .\Build.ps1 -Projec
 
 The file to apply changes is:
 ----
+- Repair prompt:
+----
+Use context7 mcp to lookup the following: /microsoftdocs/cpp-docs, and /isocpp/cppcoreguidelines. The codebase language standard is C++23.
+Only add documentation if it helps in reading the code.
+Do not create new files.
+Apply the changes in small chunks at a time.
+Do not override the old comments or documentation.
+Do not check the other tabs for code.
+Never create dummy or placeholder code.
+Never check for errors or mistakes until after the build command is ran.
+
+The build command for testing if changes were successful is: .\Build.ps1 -ProjectPath "Amalgam.sln" -Configuration "ReleaseFreetypeAVX2" -Platform "x64".
+
+(Put a description about what needs to be repaired here), the file to apply changes is:
+----
 
 .Notes
+- If it improves code, it usually won't improve the underlying logic, therefore making no noticeable difference.
 - Disable Intellisense or clangd if it's used, you don't want the AI knowing if it made any mistakes until after an attempted build.
 - The code can be overcomplex if the AI is not told explicitly to keep it as simple as possible, however telling it initially to be as simple as possible results in a worse output. So it's better to let it go wild at first, then refine it later, despite this costing more $.
 - AI sometimes generates broken code and requires manual fixing if not told to keep to the original vision as closely as possible, but doing this results in a worse output.
 - The AI tasks have to be applied in small chunks at a time.
-- AI can prototype if prompted correctly, but you have to manually fix its output.
 - Original comments / documentation are overwritten unless specified not to do so.
-- AI inserting `\[[unlikely]]` or `\[[likely]]` attributes into the code increases the chance of bugs, but is still good to experiment with.
-- Context7 MCP isn't as good as fine tuning using the RAG (Retrieve Augment Generate) technique, it may be worth pursuing training a local AI with this approach for the Source SDK 2013 source code.
-- If it improves code, it usually won't improve the underlying logic, therefore making no noticeable difference.
+- Context7 MCP does nothing for the Source SDK 2013 base, directly read files instead, such as prompting as follows: +
+`You must read all the following .cpp files using the regex: C:\Users\admin\source-sdk-2013\src\game\shared\tf\tf_weapon_*.cpp; it contains important information about projectile weapon speeds.`
 
 
