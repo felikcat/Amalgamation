@@ -984,7 +984,6 @@
     <ClCompile Include="src\Hooks\CHudCrosshair_GetDrawPosition.cpp" />
     <ClCompile Include="src\Hooks\CInventoryManager_ShowItemsPickedUp.cpp" />
     <ClCompile Include="src\Hooks\ClientModeTFNormal_BIsFriendOrPartyMember.cpp" />
-    <ClCompile Include="src\Hooks\ClientModeTFNormal_UpdateSteamRichPresence.cpp" />
     <ClCompile Include="src\Hooks\CL_CheckForPureServerWhitelist.cpp" />
     <ClCompile Include="src\Hooks\CL_Move.cpp" />
     <ClCompile Include="src\Hooks\CL_ProcessPacketEntities.cpp" />

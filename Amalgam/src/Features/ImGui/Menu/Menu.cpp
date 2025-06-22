@@ -248,9 +248,6 @@ void CMenu::MenuAimbot(int iTab)
 					FDropdown(Vars::Aimbot::Projectile::Modifiers, FDropdownEnum::Right);
 					FSlider(Vars::Aimbot::Projectile::MaxSimulationTime, FSliderEnum::Left);
 					PushTransparent(!FGet(Vars::Aimbot::Projectile::StrafePrediction));
-					{
-						FSlider(Vars::Aimbot::Projectile::HitChance, FSliderEnum::Right);
-					}
 					PopTransparent();
 					FSlider(Vars::Aimbot::Projectile::AutodetRadius, FSliderEnum::Left);
 					FSlider(Vars::Aimbot::Projectile::SplashRadius, FSliderEnum::Right);
@@ -1501,14 +1498,6 @@ void CMenu::MenuMisc(int iTab)
 					FToggle(Vars::Misc::MannVsMachine::InstantRespawn, FToggleEnum::Left);
 					FToggle(Vars::Misc::MannVsMachine::InstantRevive, FToggleEnum::Right);
 					FToggle(Vars::Misc::MannVsMachine::AllowInspect);
-				} EndSection();
-				if (Section("Steam RPC", 8))
-				{
-					FToggle(Vars::Misc::SteamRPC::Enabled, FToggleEnum::Left);
-					FToggle(Vars::Misc::SteamRPC::OverrideInMenu, FToggleEnum::Right);
-					FDropdown(Vars::Misc::SteamRPC::MatchGroup, FDropdownEnum::Left);
-					FSDropdown(Vars::Misc::SteamRPC::MapText, FDropdownEnum::Right);
-					FSlider(Vars::Misc::SteamRPC::GroupSize);
 				} EndSection();
 			}
 			EndTable();

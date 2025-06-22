@@ -23,8 +23,6 @@ class CMisc
 	bool m_bPeekPlaced = false;
 	Vec3 m_vPeekReturnPos = {};
 
-	//bool bSteamCleared = false;
-
 public:
 	void RunPre(CTFPlayer* pLocal, CUserCmd* pCmd);
 	void RunPost(CTFPlayer* pLocal, CUserCmd* pCmd, bool pSendPacket);
@@ -35,7 +33,6 @@ public:
 	void PingReducer();
 	void UnlockAchievements();
 	void LockAchievements();
-	bool SteamRPC();
 
 	int m_iWishCmdrate = -1;
 	int m_iWishUpdaterate = -1;

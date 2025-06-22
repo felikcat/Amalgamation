@@ -324,7 +324,7 @@ bool CMovementSimulation::Initialize(CBaseEntity* pEntity, PlayerStorage& tStora
 	bool bCalculated = bStrafe ? StrafePrediction(tStorage, iStrafeSamples) : false;
 
 	// really hope this doesn't work like shit
-	if (bHitchance && bCalculated && !pPlayer->m_vecVelocity().IsZero() && Vars::Aimbot::Projectile::HitChance.Value)
+	if (bCalculated && !pPlayer->m_vecVelocity().IsZero())
 	{
 		const auto& vRecords = m_mRecords[pPlayer->entindex()];
 		const auto iSamples = vRecords.size();
@@ -352,16 +352,6 @@ bool CMovementSimulation::Initialize(CBaseEntity* pEntity, PlayerStorage& tStora
 					flCurrentChance -= 1.f / ((iSamples - 1) / float(iStrafeSamples) + 1);
 				flAverageYaw = 0.f;
 			}
-		}
-
-		if (flCurrentChance < Vars::Aimbot::Projectile::HitChance.Value / 100)
-		{
-			char szBuffer[128];
-			sprintf_s(szBuffer, "Hitchance (%.1f%% < %.0f%%)", flCurrentChance * 100.0f, Vars::Aimbot::Projectile::HitChance.Value);
-			SDK::Output("MovementSimulation", szBuffer, { 80, 200, 120 }, Vars::Debug::Logging.Value);
-
-			tStorage.m_bFailed = true;
-			return false;
 		}
 	}
 

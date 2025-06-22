@@ -171,8 +171,8 @@ public:
 namespace Vars
 {
 	NAMESPACE_BEGIN(Menu)
-		CVar(CheatTitle, "Cheat title", std::string("Amalgam"), VISUAL | DROPDOWN_AUTOUPDATE);
-		CVar(CheatTag, "Cheat tag", std::string("[Amalgam]"), VISUAL);
+		CVar(CheatTitle, "Cheat title", std::string("Amalgamation"), VISUAL | DROPDOWN_AUTOUPDATE);
+		CVar(CheatTag, "Cheat tag", std::string("[Amalgamation]"), VISUAL);
 		CVar(MenuPrimaryKey, "Primary key", VK_INSERT, NOBIND);
 		CVar(MenuSecondaryKey, "Secondary key", VK_F3, NOBIND);
 
@@ -334,7 +334,6 @@ namespace Vars
 				VA_LIST("Charge shot", "Cancel charge", "Use prime time"),
 				ChargeWeapon = 1 << 0, CancelCharge = 1 << 1, UsePrimeTime = 1 << 2);
 			CVar(MaxSimulationTime, "Max simulation time", 2.f, SLIDER_MIN | SLIDER_PRECISION, 0.1f, 2.5f, 0.25f, "%gs");
-			CVar(HitChance, "Hit chance", 0.f, SLIDER_CLAMP | SLIDER_PRECISION, 0.f, 100.f, 10.f, "%g%%");
 			CVar(AutodetRadius, "Autodet radius", 90.f, SLIDER_CLAMP | SLIDER_PRECISION, 0.f, 100.f, 10.f, "%g%%");
 			CVar(SplashRadius, "Splash radius", 90.f, SLIDER_CLAMP | SLIDER_PRECISION, 0.f, 100.f, 10.f, "%g%%");
 			CVar(AutoRelease, "Auto release", 0.f, SLIDER_CLAMP | SLIDER_PRECISION, 0.f, 100.f, 5.f, "%g%%");
@@ -1042,16 +1041,6 @@ namespace Vars
 			CVar(InstantRevive, "Instant revive", false);
 			CVar(AllowInspect, "Allow inspect", false);
 		SUBNAMESPACE_END(Sound);
-
-		SUBNAMESPACE_BEGIN(SteamRPC, Steam RPC)
-			CVar(Enabled, "Enabled", false);
-			CVar(OverrideInMenu, "Override in menu", false);
-			CVarEnum(MatchGroup, "Match group", 0, NONE, nullptr,
-				VA_LIST("Special Event", "MvM Mann Up", "Competitive", "Casual", "MvM Boot Camp"),
-				SpecialEvent, MvMMannUp, Competitive, Casual, MvMBootCamp);
-			CVar(MapText, "Map text", std::string("Amalgam"));
-			CVar(GroupSize, "Group size", 1337, SLIDER_MIN, 0, 6);
-		SUBNAMESPACE_END(Steam);
 	NAMESPACE_END(Misc);
 
 	NAMESPACE_BEGIN(Logging)
