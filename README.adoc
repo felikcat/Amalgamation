@@ -10,16 +10,15 @@ endif::[]
 
 = Amalgam(ation)
 
-[TIP]
-====
-AVX2 may be faster than SSE2 though not all CPUs support it (`Steam > Help > System Information > Processor Information > AVX2`). Freetype uses freetype as the text rasterizer and includes some custom fonts, which results in better looking text but larger DLL sizes. PDBs are for developer use.
-====
+Was an experiment to see if AI could improve Amalgam, it can't no matter how strict or loose the rules were.
 
-Only link:https://github.com/DarthTon/Xenos/releases[Xenos] and "protecting" both Xenos and Amalgamation with Themida is recommended, don't use a VAC bypass as you'll get banned after too many reports.
+NOTE: If you want Amalgam to be less detected: don't use a VAC bypass as you'll get banned after too many reports, strip out the Steam RPC, change the names of the directories and files written to disk, and obfuscate the names within the config files. The way Amalgam does hooks is also detectable. +
+Themida, VMProtect, and other file protectors are useless against anti-cheats but a little useful for anti-crack.
 
 == Building
 
 . Ensure Visual Studio 2022 is installed with "Desktop development with C++".
+. Install the Boost library using `.\Restore-Packages.ps1`
 . Change to ReleaseFreetype if your CPU doesn't have AVX2: +
 `.\Build.ps1 -ProjectPath "Amalgam.sln" -Configuration "ReleaseFreetypeAVX2" -Platform "x64"`
 - Alternatively you can use Visual Studio 2022 to compile.
@@ -27,14 +26,13 @@ Only link:https://github.com/DarthTon/Xenos/releases[Xenos] and "protecting" bot
 == AI
 
 .Is it ready to improve pre-existing code yet?
-- No, and what it'll show you as improvements don't matter. A complete waste of time.
+- No, and what it'll show you as improvements don't matter. A complete waste of time if you are attempting to use it for educational purposes.
 
 .End-goal
-- For it to rewrite existing code into something that's improved while still being human-readable. +
-I estimate it'll take AI two years past June 22 2025 before it can improve a cheat, but it won't be able to write one from scratch.
+- For it to rewrite existing code into something that's improved while still being human-readable.
 
-.Is it expensive?
-- Very, it's usually over $2 USD a file for one run, sometimes $3, with the most expensive file change being close to $8.
+.Cost
+- Very expensive, it's usually over $2 USD a file for one run, sometimes $3, with the most expensive file change being close to $8.
 
 .Specifications
 - AI model: Claude Sonnet 4 by Anthropic; used via API tokens on a tier 3 plan.
